@@ -1,0 +1,8 @@
+Documents/
+node_modules/
+dist/
+coverage/
+.DS_Store
+*.log
+test-output.json
+test-output.md
