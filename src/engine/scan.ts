@@ -227,7 +227,7 @@ async function runStructuralScanWithDetails(
     const results = await Promise.allSettled(
       batch.map(async (filePath) => {
         const expectedSize = sizeMap.get(filePath);
-        const { content, size } = await safeReadFile(filePath, { expectedSize });
+          const { content, size } = await safeReadFile(filePath, { expectedSize });
         return { filePath, content, size };
       }),
     );
