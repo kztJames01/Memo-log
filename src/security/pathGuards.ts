@@ -1,4 +1,4 @@
-import { accessSync, constants } from "node:fs";
+import { accessSync, constants, lstatSync, realpathSync } from "node:fs";
 import { lstat, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 
@@ -70,6 +70,28 @@ export function assertPathWithinRoot(rootRealPath: string, candidatePath: string
   if (!isPathWithinRoot(rootRealPath, candidatePath)) {
     throw new SecurityPathError("Path escapes secure root", candidatePath);
   }
+}
+
+export function resolveAndAssertPath(rootRealPath: string, candidatePath: string): string {
+  let resolvedPath = candidatePath;
+  try {
+    const statResult = lstatSync(candidatePath);
+    if (statResult.isSymbolicLink()) {
+      resolvedPath = realpathSync(candidatePath);
+    }
+  } catch (error) {
+    throw new SecurityPathError(
+      `PATH_RESOLVE_ERROR: ${error instanceof Error ? error.message : "unknown error"}`,
+      candidatePath,
+    );
+  }
+  if (containsParentTraversal(resolvedPath)) {
+    throw new SecurityPathError("Path contains parent traversal segment", resolvedPath);
+  }
+  if (!isPathWithinRoot(rootRealPath, resolvedPath)) {
+    throw new SecurityPathError("SYMLINK_ESCAPE", resolvedPath);
+  }
+  return resolvedPath;
 }
 
 export function toContainedRelativePath(

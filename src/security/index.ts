@@ -8,6 +8,7 @@ export {
   assertPathWithinRoot,
   isPathWithinRoot,
   normalizeRelativePath,
+  resolveAndAssertPath,
   resolveSecureRoot,
   SecurityPathError,
   toContainedRelativePath
