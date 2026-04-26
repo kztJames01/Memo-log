@@ -1,6 +1,7 @@
-import { accessSync, constants } from "node:fs";
+import { accessSync, constants, lstatSync, realpathSync } from "node:fs";
 import { open } from "node:fs/promises";
 import type { Stats } from "node:fs";
+import path from "node:path";
 
 import { PARSER_LIMITS } from "../parsers/types.js";
 import { CliError, ExitCode } from "../engine/errors.js";
@@ -12,6 +13,7 @@ export interface SafeReadResult {
 
 export interface SafeReadOptions {
   expectedSize?: number | undefined;
+  rootPath?: string | undefined;
 }
 
 const MAX_WARN_LIMIT = 100;
@@ -45,16 +47,38 @@ export async function safeReadFile(
   filePath: string,
   options: SafeReadOptions = {},
 ): Promise<SafeReadResult> {
+  let resolvedPath = filePath;
+  try {
+    if (lstatSync(filePath).isSymbolicLink()) {
+      resolvedPath = realpathSync(filePath);
+    }
+  } catch {
+    throw new CliError(
+      `PATH_RESOLVE_ERROR: Failed to resolve path ${filePath}`,
+      ExitCode.SecurityError
+    );
+  }
+
+  if (options.rootPath !== undefined) {
+    const relative = path.relative(options.rootPath, resolvedPath);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) {
+      throw new CliError(
+        `SYMLINK_ESCAPE: ${filePath} -> ${resolvedPath} escapes root ${options.rootPath}`,
+        ExitCode.SecurityError
+      );
+    }
+  }
+
   let fh: Awaited<ReturnType<typeof open>> | undefined;
   try {
-    accessSync(filePath, constants.R_OK);
-    fh = await open(filePath, "r");
+    accessSync(resolvedPath, constants.R_OK);
+    fh = await open(resolvedPath, "r");
 
     const expectedSize = options.expectedSize;
     const beforeStats: Stats = await fh.stat();
     if (!beforeStats.isFile()) {
       throw new CliError(
-        `NOT_A_FILE: ${filePath} is not a regular file`,
+        `NOT_A_FILE: ${resolvedPath} is not a regular file`,
         ExitCode.SecurityError
       );
     }
@@ -67,14 +91,14 @@ export async function safeReadFile(
       expectedSize !== effectiveSize
     ) {
       throw new CliError(
-        `FILE_SIZE_MISMATCH: ${filePath} changed between discovery (${expectedSize}) and read (${effectiveSize})`,
+        `FILE_SIZE_MISMATCH: ${resolvedPath} changed between discovery (${expectedSize}) and read (${effectiveSize})`,
         ExitCode.SecurityError
       );
     }
 
     if (effectiveSize > PARSER_LIMITS.MAX_FILE_SIZE_BYTES) {
       throw new CliError(
-        `FILE_TOO_LARGE: ${filePath} is ${effectiveSize} bytes (limit: ${PARSER_LIMITS.MAX_FILE_SIZE_BYTES})`,
+        `FILE_TOO_LARGE: ${resolvedPath} is ${effectiveSize} bytes (limit: ${PARSER_LIMITS.MAX_FILE_SIZE_BYTES})`,
         ExitCode.SecurityError
       );
     }
@@ -85,7 +109,7 @@ export async function safeReadFile(
 
     if (bytesRead !== effectiveSize) {
       throw new CliError(
-        `FILE_TRUNCATED_DURING_READ: ${filePath} — expected ${effectiveSize} bytes but read ${bytesRead}`,
+        `FILE_TRUNCATED_DURING_READ: ${resolvedPath} — expected ${effectiveSize} bytes but read ${bytesRead}`,
         ExitCode.SecurityError
       );
     }
@@ -102,7 +126,7 @@ export async function safeReadFile(
       afterStats.size > PARSER_LIMITS.MAX_FILE_SIZE_BYTES
     ) {
       throw new CliError(
-        `FILE_CHANGED_DURING_READ: ${filePath} (size before=${effectiveSize} after=${afterStats.size})`,
+        `FILE_CHANGED_DURING_READ: ${resolvedPath} (size before=${effectiveSize} after=${afterStats.size})`,
         ExitCode.SecurityError
       );
     }

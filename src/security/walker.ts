@@ -7,6 +7,7 @@ import { createIgnoreMatcher } from "./gitignore.js";
 import {
   assertPathWithinRoot,
   normalizeRelativePath,
+  resolveAndAssertPath,
   resolveSecureRoot
 } from "./pathGuards.js";
 import {
@@ -166,16 +167,31 @@ export async function walkDirectory(options: DirectoryWalkerOptions): Promise<Sc
         directory.relativePath ? `${directory.relativePath}/${entry.name}` : entry.name
       );
       const absolutePath = path.join(directory.absolutePath, entry.name);
-      try {
-        assertPathWithinRoot(rootPath, absolutePath);
-      } catch {
+    let resolvedAbsolutePath: string;
+    try {
+      resolvedAbsolutePath = resolveAndAssertPath(rootPath, absolutePath);
+    } catch (error) {
+      if (error instanceof Error && error.message === "SYMLINK_ESCAPE") {
+        warnings.push({
+          code: "SYMLINK_ESCAPE",
+          message: "Symlink escapes secure root and was skipped",
+          relativePath,
+        });
+      } else if (error instanceof Error && error.message.startsWith("PATH_RESOLVE_ERROR")) {
+        warnings.push({
+          code: "FS_ERROR",
+          message: `Failed to resolve path: ${error.message}`,
+          relativePath,
+        });
+      } else {
         warnings.push({
           code: "PATH_TRAVERSAL",
           message: "Resolved entry path escapes secure root and was skipped",
           relativePath,
         });
-        continue;
       }
+      continue;
+    }
 
       if (relativePath.split("/").some((segment) => segment === "..")) {
         warnings.push({
@@ -191,34 +207,10 @@ export async function walkDirectory(options: DirectoryWalkerOptions): Promise<Sc
       }
 
       if (entry.isSymbolicLink()) {
-        let linkedRealPath: string;
-
-        try {
-          linkedRealPath = await realpath(absolutePath);
-        } catch (error) {
-          warnings.push({
-            code: "FS_ERROR",
-            message: `Failed to resolve symlink: ${error instanceof Error ? error.message : "Unknown error"}`,
-            relativePath
-          });
-          continue;
-        }
-
-        try {
-          assertPathWithinRoot(rootPath, linkedRealPath);
-        } catch {
-          warnings.push({
-            code: "SYMLINK_ESCAPE",
-            message: "Symlink escapes secure root and was skipped",
-            relativePath
-          });
-          continue;
-        }
-
         let linkedStats: Stats;
         try {
-          accessSync(absolutePath, constants.R_OK);
-          linkedStats = await stat(absolutePath);
+          accessSync(resolvedAbsolutePath, constants.R_OK);
+          linkedStats = await stat(resolvedAbsolutePath);
         } catch (error) {
           warnings.push({
             code: "PERMISSION_DENIED",
@@ -237,13 +229,13 @@ export async function walkDirectory(options: DirectoryWalkerOptions): Promise<Sc
             continue;
           }
 
-          if (visitedDirectories.has(linkedRealPath)) {
+          if (visitedDirectories.has(resolvedAbsolutePath)) {
             continue;
           }
 
-          visitedDirectories.add(linkedRealPath);
+          visitedDirectories.add(resolvedAbsolutePath);
           childDirectories.push({
-            absolutePath: linkedRealPath,
+            absolutePath: resolvedAbsolutePath,
             relativePath,
             depth: directory.depth + 1
           });
@@ -284,7 +276,7 @@ export async function walkDirectory(options: DirectoryWalkerOptions): Promise<Sc
         }
 
         childDirectories.push({
-          absolutePath,
+          absolutePath: resolvedAbsolutePath,
           relativePath,
           depth: directory.depth + 1
         });
@@ -298,8 +290,8 @@ export async function walkDirectory(options: DirectoryWalkerOptions): Promise<Sc
 
         let fileStats: Stats;
         try {
-          accessSync(absolutePath, constants.R_OK);
-          fileStats = await lstat(absolutePath);
+          accessSync(resolvedAbsolutePath, constants.R_OK);
+          fileStats = await lstat(resolvedAbsolutePath);
         } catch (error) {
           warnings.push({
             code: "PERMISSION_DENIED",
