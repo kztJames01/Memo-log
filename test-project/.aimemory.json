@@ -1,0 +1,23 @@
+{
+  "languages": [
+    "ts",
+    "tsx",
+    "js",
+    "jsx",
+    "mjs",
+    "cjs"
+  ],
+  "exclude": [
+    ".git",
+    "node_modules",
+    "dist",
+    "build",
+    ".ai-memory"
+  ],
+  "output": {
+    "markdown": "AI_MEMORY.md",
+    "json": "AI_MEMORY.json"
+  },
+  "maxDepth": 20,
+  "mode": "tech"
+}
