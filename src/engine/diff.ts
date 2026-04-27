@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import type { AstExtract } from "../types/scan.js";
@@ -37,8 +37,11 @@ export interface DiffResult {
   byCategory: Map<Category, FileDiff[]>;
 }
 
+// Normalize path to POSIX separators only — preserves case to avoid
+// collisions on case-sensitive filesystems (Linux, macOS APFS case-sensitive).
+// Previously used .toLowerCase() which caused Foo.ts and foo.ts to collide.
 function normalizePathForState(p: string): string {
-  return p.replace(/\\/g, "/").toLowerCase();
+  return p.replace(/\\/g, "/");
 }
 
 function computeContentHash(content: string): string {
@@ -73,26 +76,7 @@ export function loadState(rootDir: string): StateV2 | null {
 }
 
 export function saveState(state: StateV2, rootDir: string): void {
-  const stateDir = join(rootDir, STATE_DIR);
-  mkdirSync(stateDir, { recursive: true });
-  const stateFile = join(stateDir, "state.json");
-  const tempPath = join(stateDir, `.state-${Date.now()}.tmp`);
-  const normalizedState: StateV2 = {
-    version: 2,
-    lastRun: state.lastRun,
-    files: state.files,
-  };
-  writeFileSync(tempPath, JSON.stringify(normalizedState, null, 2), "utf8");
-  try {
-    renameSync(tempPath, stateFile);
-  } catch {
-    writeFileSync(stateFile, JSON.stringify(normalizedState, null, 2), "utf8");
-    try {
-      unlinkSync(tempPath);
-    } catch {
-      // ignore cleanup failure
-    }
-  }
+  atomicWriteJsonSync(join(rootDir, STATE_DIR), "state.json", state);
 }
 
 export function computeFileState(extract: AstExtract): FileState {
@@ -293,7 +277,7 @@ export function validateNoStaleReferences(
   diffResult: DiffResult
 ): string[] {
   const violations: string[] = [];
-  const removedPaths = new Set(diffResult.removed.map((d) => d.path));
+  const removedPaths = new Set(diffResult.removed.map((d) => normalizePathForState(d.path)));
 
   for (const entry of snapshot.entries) {
     const refMatch = entry.ref.match(/^\[(.+?):\d+/);
@@ -308,22 +292,10 @@ export function validateNoStaleReferences(
   return violations;
 }
 
+// Atomic file write using temp file + rename with collision-safe UUID names.
+// Removed the non-atomic fallback that could corrupt state on crash.
 export function writeStateAtomic(state: StateV2, rootDir: string): void {
-  const stateDir = join(rootDir, STATE_DIR);
-  mkdirSync(stateDir, { recursive: true });
-  const stateFile = join(stateDir, "state.json");
-  const tempPath = join(stateDir, `.state-${Date.now()}.tmp`);
-  writeFileSync(tempPath, JSON.stringify(state, null, 2), "utf8");
-  try {
-    renameSync(tempPath, stateFile);
-  } catch {
-    writeFileSync(stateFile, JSON.stringify(state, null, 2), "utf8");
-    try {
-      unlinkSync(tempPath);
-    } catch {
-      // ignore
-    }
-  }
+  atomicWriteJsonSync(join(rootDir, STATE_DIR), "state.json", state);
 }
 
 export function clearState(rootDir: string): void {
@@ -343,4 +315,26 @@ export function getDiffSummary(diffResult: DiffResult): string {
   if (diffResult.modified.length > 0) parts.push(`~${diffResult.modified.length}`);
   if (diffResult.removed.length > 0) parts.push(`-${diffResult.removed.length}`);
   return parts.length > 0 ? parts.join(" ") : "no changes";
+}
+
+// Shared atomic JSON write: writes to a UUID-named temp file, then renames.
+// If rename fails (e.g. cross-device), throws rather than falling back to
+// a non-atomic direct write that could corrupt on crash.
+function atomicWriteJsonSync(dir: string, fileName: string, data: unknown): void {
+  mkdirSync(dir, { recursive: true });
+  const targetFile = join(dir, fileName);
+  const tempPath = join(dir, `.tmp-${randomUUID()}.json`);
+  const serialized = JSON.stringify(data, null, 2);
+  writeFileSync(tempPath, serialized, "utf8");
+  try {
+    renameSync(tempPath, targetFile);
+  } catch {
+    // Clean up temp file on rename failure, then throw
+    try {
+      unlinkSync(tempPath);
+    } catch {
+      // ignore cleanup failure
+    }
+    throw new Error(`Atomic write failed: could not rename temp file to ${targetFile}`);
+  }
 }

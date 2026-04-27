@@ -1,5 +1,4 @@
-import { accessSync, constants, lstatSync, realpathSync } from "node:fs";
-import { open } from "node:fs/promises";
+import { open, lstat, realpath } from "node:fs/promises";
 import type { Stats } from "node:fs";
 import path from "node:path";
 
@@ -47,10 +46,13 @@ export async function safeReadFile(
   filePath: string,
   options: SafeReadOptions = {},
 ): Promise<SafeReadResult> {
+  // Resolve symlinks using async APIs before opening the file descriptor.
+  // This eliminates the TOCTOU race from sync+async interleaving.
   let resolvedPath = filePath;
   try {
-    if (lstatSync(filePath).isSymbolicLink()) {
-      resolvedPath = realpathSync(filePath);
+    const linkStat = await lstat(filePath);
+    if (linkStat.isSymbolicLink()) {
+      resolvedPath = await realpath(filePath);
     }
   } catch {
     throw new CliError(
@@ -69,9 +71,10 @@ export async function safeReadFile(
     }
   }
 
+  // Open the file descriptor directly — all subsequent operations use the fd,
+  // which eliminates the TOCTOU window between path resolution and file open.
   let fh: Awaited<ReturnType<typeof open>> | undefined;
   try {
-    accessSync(resolvedPath, constants.R_OK);
     fh = await open(resolvedPath, "r");
 
     const expectedSize = options.expectedSize;

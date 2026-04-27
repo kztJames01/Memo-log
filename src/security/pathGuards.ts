@@ -1,5 +1,4 @@
-import { accessSync, constants, lstatSync, realpathSync } from "node:fs";
-import { lstat, realpath, stat } from "node:fs/promises";
+import { access, constants, lstat, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 
 export class SecurityPathError extends Error {
@@ -18,7 +17,7 @@ export async function resolveSecureRoot(rootPath: string): Promise<string> {
   }
   const absoluteRoot = path.resolve(rootPath);
   try {
-    accessSync(absoluteRoot, constants.R_OK);
+    await access(absoluteRoot, constants.R_OK);
   } catch (error) {
     throw new SecurityPathError(
       `Root path is not readable: ${error instanceof Error ? error.message : "unknown error"}`,
@@ -72,12 +71,12 @@ export function assertPathWithinRoot(rootRealPath: string, candidatePath: string
   }
 }
 
-export function resolveAndAssertPath(rootRealPath: string, candidatePath: string): string {
+export async function resolveAndAssertPath(rootRealPath: string, candidatePath: string): Promise<string> {
   let resolvedPath = candidatePath;
   try {
-    const statResult = lstatSync(candidatePath);
+    const statResult = await lstat(candidatePath);
     if (statResult.isSymbolicLink()) {
-      resolvedPath = realpathSync(candidatePath);
+      resolvedPath = await realpath(candidatePath);
     }
   } catch (error) {
     throw new SecurityPathError(
