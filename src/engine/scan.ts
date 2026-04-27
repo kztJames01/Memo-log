@@ -1,6 +1,5 @@
 // runs the end-to-end scan pipeline and writes deterministic outputs.
 import fs from "node:fs/promises";
-import { accessSync, constants } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -188,8 +187,9 @@ async function runStructuralScanWithDetails(
   options: StructuralScanOptions = {},
 ): Promise<StructuralScanDetails> {
   const resolvedTargetDir = path.resolve(targetDir);
+  // Use async fs.access instead of sync accessSync
   try {
-    accessSync(resolvedTargetDir, constants.R_OK);
+    await fs.access(resolvedTargetDir);
   } catch (error) {
     throw new CliError(
       `INVALID_TARGET_DIR: ${resolvedTargetDir} is not readable (${error instanceof Error ? error.message : String(error)})`,
@@ -227,7 +227,7 @@ async function runStructuralScanWithDetails(
     const results = await Promise.allSettled(
       batch.map(async (filePath) => {
         const expectedSize = sizeMap.get(filePath);
-          const { content, size } = await safeReadFile(filePath, { expectedSize });
+        const { content, size } = await safeReadFile(filePath, { expectedSize });
         return { filePath, content, size };
       }),
     );
@@ -346,7 +346,8 @@ async function collectAgentNotes(
 
     let stats;
     try {
-      accessSync(absolutePath, constants.R_OK);
+      // Use async fs.access instead of sync accessSync
+      await fs.access(absolutePath);
       stats = await fs.stat(absolutePath);
     } catch {
       continue;

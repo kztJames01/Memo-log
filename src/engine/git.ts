@@ -100,12 +100,14 @@ export class GitService {
       throw new Error("No files provided for commit.");
     }
 
-    const uniqueFiles = [...new Set(files.map(normalizeFilePath).filter(Boolean))];
+    const uniqueFiles = [...new Set(files.map(sanitizeGitFilePath).filter(Boolean))];
     if (uniqueFiles.length === 0) {
       throw new Error("No valid files provided for commit.");
     }
 
-    await this.runGit(["add", "-A", "--", ...uniqueFiles], false);
+    // Prefix with "./" to ensure git never interprets a path as a flag
+    const safePrefixedFiles = uniqueFiles.map(prefixRelativePath);
+    await this.runGit(["add", "-A", "--", ...safePrefixedFiles], false);
     const commitResult = await this.runGit(["commit", "-m", message], false);
     return {
       message,
@@ -115,9 +117,9 @@ export class GitService {
   }
 
   renderCommitCommand(files: string[], message: string): string {
-    const safeFiles = [...new Set(files.map(normalizeFilePath).filter(Boolean))]
+    const safeFiles = [...new Set(files.map(sanitizeGitFilePath).filter(Boolean))]
       .sort((a, b) => a.localeCompare(b))
-      .map(quoteShellArg);
+      .map((f) => quoteShellArg(prefixRelativePath(f)));
     const safeMessage = quoteShellArg(message);
     return `git add -A -- ${safeFiles.join(" ")} && git commit -m ${safeMessage}`;
   }
@@ -165,9 +167,31 @@ function normalizeFilePath(filePath: string): string {
   return filePath.replace(/\\/g, "/").trim();
 }
 
+// Reject file paths that could be interpreted as git options.
+// A path starting with "-" could inject flags into git subcommands.
+function sanitizeGitFilePath(filePath: string): string {
+  const normalized = normalizeFilePath(filePath);
+  if (normalized.startsWith("-")) {
+    throw new Error(`Invalid file path: "${filePath}" — paths must not start with "-"`);
+  }
+  return normalized;
+}
+
+// Prefix relative paths with "./" so git never treats them as flags,
+// even if someone bypasses the sanitize check. Absolute paths are left as-is.
+function prefixRelativePath(filePath: string): string {
+  if (path.isAbsolute(filePath)) return filePath;
+  if (filePath.startsWith("./")) return filePath;
+  return `./${filePath}`;
+}
+
 function quoteShellArg(value: string): string {
   if (value.length === 0) {
     return "''";
+  }
+  // Reject control characters that can break shell quoting
+  if (/[\x00-\x1f]/.test(value)) {
+    throw new Error(`Unsafe shell argument: contains control characters`);
   }
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }

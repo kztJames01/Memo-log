@@ -4,6 +4,11 @@ import {
   InvalidArgumentError,
   Option,
 } from "commander";
+import {
+  createDefaultConfig,
+  loadEffectiveConfig,
+  runScanCommand,
+} from "../engine/index.js";
 
 // CLI entry point for deterministic project memory generation
 // Supports three main operations: init, commits, and scan
@@ -45,19 +50,6 @@ interface ScanExecutionResult {
   totalFiles: number;
 }
 
-interface EngineModule {
-  loadEffectiveConfig: (options: ScanExecutionOptions) => Promise<unknown> | unknown;
-  createDefaultConfig: (
-    targetDir: string,
-    force?: boolean,
-  ) => Promise<unknown> | unknown;
-  runScanCommand: (
-    options: ScanExecutionOptions & { effectiveConfig: unknown },
-  ) => Promise<ScanExecutionResult> | ScanExecutionResult;
-}
-
-let engineModulePromise: Promise<EngineModule> | undefined;
-
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;  // Type guard for Record type
 
@@ -81,26 +73,6 @@ const parsePositiveInteger = (value: string): number => {
 
 const normalizeOptional = <T>(value: T | true | undefined): T | undefined =>
   value === true ? undefined : value;
-
-//lazy loading of engine module to prevent circular dependencies and improve startup performance
-const loadEngineModule = async (): Promise<EngineModule> => {
-  if (!engineModulePromise) {
-    engineModulePromise = (async () => {
-      const engineModulePath = "../engine/index.js";
-      const loaded = (await import(engineModulePath)) as Partial<EngineModule>;
-      if (
-        typeof loaded.loadEffectiveConfig !== "function" ||
-        typeof loaded.createDefaultConfig !== "function" ||
-        typeof loaded.runScanCommand !== "function"
-      ) {
-        throw new Error("Engine module does not expose required command handlers.");
-      }
-      return loaded as EngineModule;
-    })();
-  }
-
-  return engineModulePromise;
-};
 
 // Convert errors to standardized exit codes for consistent CLI behavior
 const toExitCode = (error: unknown): number => {
@@ -148,8 +120,7 @@ const buildProgram = (): Command => {
     .argument("[targetDir]", "Directory to initialize", ".")
     .option("--force", "Overwrite existing config")
     .action(async (targetDir: string, options: InitCommandOptions) => {
-      const engine = await loadEngineModule();
-      await engine.createDefaultConfig(targetDir, Boolean(options.force));
+      await createDefaultConfig(targetDir, Boolean(options.force));
     });
 
   program
@@ -218,7 +189,6 @@ const buildProgram = (): Command => {
     .option("--quiet", "Suppress warnings")
     .option("--include-agent-notes", "Append agent session notes (marked unverified)")
     .action(async (targetDir: string, options: RawScanCommandOptions & { quiet?: boolean; includeAgentNotes?: boolean }) => {
-      const engine = await loadEngineModule();
       const scanOptions: ScanExecutionOptions = { targetDir };
       if (options.mode !== undefined) {
         scanOptions.mode = options.mode;
@@ -256,8 +226,8 @@ const buildProgram = (): Command => {
         scanOptions.quiet = options.quiet;
       }
 
-      const effectiveConfig = await engine.loadEffectiveConfig(scanOptions);
-      const result = await engine.runScanCommand({ ...scanOptions, effectiveConfig });
+      const effectiveConfig = await loadEffectiveConfig(scanOptions);
+      const result: ScanExecutionResult = await runScanCommand({ ...scanOptions, effectiveConfig });
 
       if (!options.quiet) {
         console.log(`Scanned ${result.totalFiles} files.`);

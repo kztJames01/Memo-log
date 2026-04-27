@@ -1,11 +1,9 @@
-import { lstat, readdir, realpath, stat } from "node:fs/promises";
+/// Directory walker implementation with security guards against symlink escapes, path traversal, and other filesystem edge cases.
+import { access, constants, lstat, readdir, stat } from "node:fs/promises";
 import path from "node:path";
-import { accessSync, constants } from "node:fs";
 import type { Dirent, Stats } from "node:fs";
-
 import { createIgnoreMatcher } from "./gitignore.js";
 import {
-  assertPathWithinRoot,
   normalizeRelativePath,
   resolveAndAssertPath,
   resolveSecureRoot
@@ -137,7 +135,7 @@ export async function walkDirectory(options: DirectoryWalkerOptions): Promise<Sc
 
     let directoryEntries: Dirent[];
     try {
-      accessSync(directory.absolutePath, constants.R_OK);
+      await access(directory.absolutePath, constants.R_OK);
       directoryEntries = await readdir(directory.absolutePath, { withFileTypes: true });
     } catch (error) {
       const warning: TraversalWarning = {
@@ -167,31 +165,31 @@ export async function walkDirectory(options: DirectoryWalkerOptions): Promise<Sc
         directory.relativePath ? `${directory.relativePath}/${entry.name}` : entry.name
       );
       const absolutePath = path.join(directory.absolutePath, entry.name);
-    let resolvedAbsolutePath: string;
-    try {
-      resolvedAbsolutePath = resolveAndAssertPath(rootPath, absolutePath);
-    } catch (error) {
-      if (error instanceof Error && error.message === "SYMLINK_ESCAPE") {
-        warnings.push({
-          code: "SYMLINK_ESCAPE",
-          message: "Symlink escapes secure root and was skipped",
-          relativePath,
-        });
-      } else if (error instanceof Error && error.message.startsWith("PATH_RESOLVE_ERROR")) {
-        warnings.push({
-          code: "FS_ERROR",
-          message: `Failed to resolve path: ${error.message}`,
-          relativePath,
-        });
-      } else {
-        warnings.push({
-          code: "PATH_TRAVERSAL",
-          message: "Resolved entry path escapes secure root and was skipped",
-          relativePath,
-        });
+      let resolvedAbsolutePath: string;
+      try {
+        resolvedAbsolutePath = await resolveAndAssertPath(rootPath, absolutePath);
+      } catch (error) {
+        if (error instanceof Error && error.message === "SYMLINK_ESCAPE") {
+          warnings.push({
+            code: "SYMLINK_ESCAPE",
+            message: "Symlink escapes secure root and was skipped",
+            relativePath,
+          });
+        } else if (error instanceof Error && error.message.startsWith("PATH_RESOLVE_ERROR")) {
+          warnings.push({
+            code: "FS_ERROR",
+            message: `Failed to resolve path: ${error.message}`,
+            relativePath,
+          });
+        } else {
+          warnings.push({
+            code: "PATH_TRAVERSAL",
+            message: "Resolved entry path escapes secure root and was skipped",
+            relativePath,
+          });
+        }
+        continue;
       }
-      continue;
-    }
 
       if (relativePath.split("/").some((segment) => segment === "..")) {
         warnings.push({
@@ -209,7 +207,7 @@ export async function walkDirectory(options: DirectoryWalkerOptions): Promise<Sc
       if (entry.isSymbolicLink()) {
         let linkedStats: Stats;
         try {
-          accessSync(resolvedAbsolutePath, constants.R_OK);
+          await access(resolvedAbsolutePath, constants.R_OK);
           linkedStats = await stat(resolvedAbsolutePath);
         } catch (error) {
           warnings.push({
@@ -290,7 +288,7 @@ export async function walkDirectory(options: DirectoryWalkerOptions): Promise<Sc
 
         let fileStats: Stats;
         try {
-          accessSync(resolvedAbsolutePath, constants.R_OK);
+          await access(resolvedAbsolutePath, constants.R_OK);
           fileStats = await lstat(resolvedAbsolutePath);
         } catch (error) {
           warnings.push({
