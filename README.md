@@ -1,21 +1,21 @@
-# ai-memory
+# memo-log
 
 A **zero-token, static-analysis CLI** that acts as a **post-execution alignment layer** for AI-written code. It scans what actually exists on disk, generates deterministic dual-audience memory (`AI_MEMORY.md` + `AI_MEMORY.json`), and anchors every claim to source references.
 
 ## Why?
 
-AI coding tools generate code fast, but most people don't verify what was written. `ai-memory` reads your codebase deterministically — no LLM calls, no tokens, no guessing — and produces a structured memory file that both developers and non-technical stakeholders can understand.
+AI coding tools generate code fast, but most people don't verify what was written. `memo-log` reads your codebase deterministically — no LLM calls, no tokens, no guessing — and produces a structured memory file that both developers and non-technical stakeholders can understand.
 
 ## Install
 
 ```bash
-npm install -g ai-memory
+npm install -g memo-log
 ```
 
 Or use without installing:
 
 ```bash
-npx ai-memory scan ./my-project
+npx memo-log scan ./my-project
 ```
 
 ## CLI
@@ -25,7 +25,7 @@ npx ai-memory scan ./my-project
 Create default config in a project directory:
 
 ```bash
-ai-memory init ./my-project
+memo-log init ./my-project
 ```
 
 Creates `.aimemory.json` with default settings:
@@ -45,7 +45,7 @@ Creates `.aimemory.json` with default settings:
 Scan a project and generate memory files:
 
 ```bash
-ai-memory scan ./my-project [options]
+memo-log scan ./my-project [options]
 ```
 
 | Option | Values | Default | Description |
@@ -72,7 +72,7 @@ ai-memory scan ./my-project [options]
 Generate conventional commit suggestions grouped by semantic scope:
 
 ```bash
-ai-memory commits ./my-project [options]
+memo-log commits ./my-project [options]
 ```
 
 | Option | Description |
@@ -128,7 +128,7 @@ SHA-256 hashes + structural fingerprints for diff/realignment on subsequent scan
 
 ## State & Diff Engine
 
-On each `scan`, `ai-memory`:
+On each `scan`, `memo-log`:
 
 1. Loads previous state from `.ai-memory/state.json`
 2. Scans current code and computes hashes + fingerprints
@@ -157,7 +157,7 @@ On each `scan`, `ai-memory`:
 4. **Schema validation** — `AI_MEMORY.json` validated against Zod schema. Invalid → CLI exits with error.
 5. **Hash-verified state** — `.ai-memory/state.json` uses SHA-256 + structural fingerprints for diff.
 6. **Fail-fast on ambiguity** — If AST parse fails, falls back to regex. Never guesses intent.
-7. **Open audit trail** — All logic is deterministic. Run `ai-memory scan` twice on same code → identical output.
+7. **Open audit trail** — All logic is deterministic. Run `memo-log scan` twice on same code → identical output.
 
 ## IDE Compatibility
 
@@ -173,7 +173,7 @@ No tight coupling. The tool drops structured, version-controlled memory alongsid
 
 ## Configuration
 
-Create `.aimemory.json` in your project root (or run `ai-memory init`):
+Create `.aimemory.json` in your project root (or run `memo-log init`):
 
 ```json
 {

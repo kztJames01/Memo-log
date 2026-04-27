@@ -88,7 +88,7 @@ describe("diff engine", () => {
       expect(Object.keys(state.files).length).toBe(1);
     });
 
-    it("should normalize paths to lowercase", () => {
+    it("should normalize paths to POSIX separators preserving case", () => {
       const extracts: AstExtract[] = [
         {
           file: "SRC/Auth/Login.ts",
@@ -101,27 +101,53 @@ describe("diff engine", () => {
       const state = buildCurrentState(extracts);
       const keys = Object.keys(state.files);
 
-      expect(keys[0]).toBe("src/auth/login.ts");
+      // Case is preserved to avoid collisions on case-sensitive filesystems
+      expect(keys[0]).toBe("SRC/Auth/Login.ts");
+    });
+
+    it("should keep distinct entries for files differing only in case", () => {
+      const extracts: AstExtract[] = [
+        {
+          file: "src/utils/Helper.ts",
+          exports: [{ name: "Helper", line: 1 }],
+          imports: [],
+          signatures: [],
+        },
+        {
+          file: "src/utils/helper.ts",
+          exports: [{ name: "helper", line: 1 }],
+          imports: [],
+          signatures: [],
+        },
+      ];
+
+      const state = buildCurrentState(extracts);
+      const keys = Object.keys(state.files);
+
+      // On case-sensitive FS, these are different files — must not collide
+      expect(keys.length).toBe(2);
+      expect(keys).toContain("src/utils/Helper.ts");
+      expect(keys).toContain("src/utils/helper.ts");
     });
   });
 
   describe("diffStates", () => {
-it("should detect added files", () => {
-    const extracts: AstExtract[] = [
-      {
-        file: "src/new-file.ts",
-        exports: [{ name: "newExport", line: 1 }],
-        imports: [],
-        signatures: [],
-      },
-    ];
+    it("should detect added files", () => {
+      const extracts: AstExtract[] = [
+        {
+          file: "src/new-file.ts",
+          exports: [{ name: "newExport", line: 1 }],
+          imports: [],
+          signatures: [],
+        },
+      ];
 
-    const result = diffStates(extracts, null);
+      const result = diffStates(extracts, null);
 
-    expect(result.added.length).toBe(1);
-    expect(result.added[0]!.path).toBe("src/new-file.ts");
-    expect(result.added[0]!.changeType).toBe("ADDED");
-  });
+      expect(result.added.length).toBe(1);
+      expect(result.added[0]!.path).toBe("src/new-file.ts");
+      expect(result.added[0]!.changeType).toBe("ADDED");
+    });
 
     it("should detect modified files", () => {
       const previousState = {
@@ -144,57 +170,57 @@ it("should detect added files", () => {
         },
       ];
 
-const result = diffStates(currentExtracts, previousState);
+      const result = diffStates(currentExtracts, previousState);
 
-    expect(result.modified.length).toBe(1);
-    expect(result.modified[0]!.path).toBe("src/utils/helper.ts");
-    expect(result.modified[0]!.changeType).toBe("MODIFIED");
-  });
+      expect(result.modified.length).toBe(1);
+      expect(result.modified[0]!.path).toBe("src/utils/helper.ts");
+      expect(result.modified[0]!.changeType).toBe("MODIFIED");
+    });
 
-  it("should detect removed files", () => {
-    const previousState = {
-      version: 2 as const,
-      lastRun: new Date().toISOString(),
-      files: {
-        "src/old-file.ts": {
-          hash: "somehash",
-          fingerprint: "somefingerprint",
+    it("should detect removed files", () => {
+      const previousState = {
+        version: 2 as const,
+        lastRun: new Date().toISOString(),
+        files: {
+          "src/old-file.ts": {
+            hash: "somehash",
+            fingerprint: "somefingerprint",
+          },
         },
-      },
-    };
+      };
 
-    const result = diffStates([], previousState);
+      const result = diffStates([], previousState);
 
-    expect(result.removed.length).toBe(1);
-    expect(result.removed[0]!.path).toBe("src/old-file.ts");
-    expect(result.removed[0]!.changeType).toBe("REMOVED");
-  });
+      expect(result.removed.length).toBe(1);
+      expect(result.removed[0]!.path).toBe("src/old-file.ts");
+      expect(result.removed[0]!.changeType).toBe("REMOVED");
+    });
 
-  it("should detect untouched files", () => {
-    const currentExtracts: AstExtract[] = [
-      {
-        file: "src/utils/helper.ts",
-        exports: [{ name: "helper", line: 1 }],
-        imports: [],
-        signatures: [],
-      },
-    ];
+    it("should detect untouched files", () => {
+      const currentExtracts: AstExtract[] = [
+        {
+          file: "src/utils/helper.ts",
+          exports: [{ name: "helper", line: 1 }],
+          imports: [],
+          signatures: [],
+        },
+      ];
 
-    const state = buildCurrentState(currentExtracts);
+      const state = buildCurrentState(currentExtracts);
 
-    const previousState: StateV2 = {
-      version: 2 as const,
-      lastRun: new Date().toISOString(),
-      files: {
-        "src/utils/helper.ts": state.files["src/utils/helper.ts"]!,
-      },
-    };
+      const previousState: StateV2 = {
+        version: 2 as const,
+        lastRun: new Date().toISOString(),
+        files: {
+          "src/utils/helper.ts": state.files["src/utils/helper.ts"]!,
+        },
+      };
 
-    const result = diffStates(currentExtracts, previousState);
+      const result = diffStates(currentExtracts, previousState);
 
-    expect(result.untouched.length).toBe(1);
-    expect(result.untouched[0]!.changeType).toBe("UNTOUCHED");
-  });
+      expect(result.untouched.length).toBe(1);
+      expect(result.untouched[0]!.changeType).toBe("UNTOUCHED");
+    });
 
     it("should group by category", () => {
       const extracts: AstExtract[] = [
@@ -278,14 +304,14 @@ const result = diffStates(currentExtracts, previousState);
         },
       ];
 
-const state = buildCurrentState(currentExtracts);
-    const previousState: StateV2 = {
-      version: 2 as const,
-      lastRun: new Date().toISOString(),
-      files: {
-        "src/unchanged.ts": state.files["src/unchanged.ts"]!,
-      },
-    };
+      const state = buildCurrentState(currentExtracts);
+      const previousState: StateV2 = {
+        version: 2 as const,
+        lastRun: new Date().toISOString(),
+        files: {
+          "src/unchanged.ts": state.files["src/unchanged.ts"]!,
+        },
+      };
 
       const result = diffStates(currentExtracts, previousState);
       const summary = getDiffSummary(result);
@@ -294,35 +320,35 @@ const state = buildCurrentState(currentExtracts);
     });
   });
 
-describe("loadState/saveState", () => {
-  const testRoot = process.cwd();
+  describe("loadState/saveState", () => {
+    const testRoot = process.cwd();
 
-  it("should save and load state correctly", async () => {
-    const state = buildCurrentState([
-      {
-        file: "src/test.ts",
-        exports: [{ name: "test", line: 1 }],
-        imports: [],
-        signatures: [],
-      },
-    ]);
+    it("should save and load state correctly", async () => {
+      const state = buildCurrentState([
+        {
+          file: "src/test.ts",
+          exports: [{ name: "test", line: 1 }],
+          imports: [],
+          signatures: [],
+        },
+      ]);
 
-    saveState(state, testRoot);
-    const loaded = loadState(testRoot);
+      saveState(state, testRoot);
+      const loaded = loadState(testRoot);
 
-    expect(loaded).not.toBeNull();
-    expect(loaded!.version).toBe(2);
-    expect(loaded!.files["src/test.ts"]).toBeTruthy();
+      expect(loaded).not.toBeNull();
+      expect(loaded!.version).toBe(2);
+      expect(loaded!.files["src/test.ts"]).toBeTruthy();
 
-    clearState(testRoot);
+      clearState(testRoot);
+    });
+
+    it("should return null for non-existent state", () => {
+      clearState(testRoot);
+      const loaded = loadState(testRoot);
+      expect(loaded).toBeNull();
+    });
   });
-
-  it("should return null for non-existent state", () => {
-    clearState(testRoot);
-    const loaded = loadState(testRoot);
-    expect(loaded).toBeNull();
-  });
-});
 
   describe("validateNoStaleReferences", () => {
     it("should detect stale references to removed files", () => {
@@ -389,6 +415,40 @@ describe("loadState/saveState", () => {
 
       const violations = validateNoStaleReferences(snapshot, diffResult);
 
+      expect(violations.length).toBe(0);
+    });
+
+    it("should be case-sensitive when matching stale references", () => {
+      const previousState = {
+        version: 2 as const,
+        lastRun: new Date().toISOString(),
+        files: {
+          "src/Deleted.ts": { hash: "hash", fingerprint: "fp" },
+        },
+      };
+
+      const currentExtracts: AstExtract[] = [];
+      const diffResult = diffStates(currentExtracts, previousState);
+
+      // Reference with different case should NOT match the removed file
+      const snapshot = {
+        version: 2 as const,
+        generatedAt: new Date().toISOString(),
+        targetDir: process.cwd(),
+        entries: [
+          {
+            id: "123",
+            tech: "Test",
+            simple: "Test",
+            ref: "[src/deleted.ts:1]",
+            category: "utils" as const,
+          },
+        ],
+        warnings: [],
+      };
+
+      const violations = validateNoStaleReferences(snapshot, diffResult);
+      // Case-sensitive: src/deleted.ts != src/Deleted.ts, so no stale ref
       expect(violations.length).toBe(0);
     });
   });
