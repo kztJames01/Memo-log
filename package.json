@@ -1,6 +1,6 @@
 {
   "name": "memo-log",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Deterministic zero-token code memory generator",
   "license": "MIT",
   "type": "module",
