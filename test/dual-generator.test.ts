@@ -19,24 +19,24 @@ const sampleExtracts: AstExtract[] = [
   makeExtract({
     file: "src/components/Button.tsx",
     exports: [
-      { name: "Button", line: 5, column: 0 },
-      { name: "IconButton", line: 12 },
+      { kind: "function", name: "Button", line: 5, column: 0 },
+      { kind: "function", name: "IconButton", line: 12 },
     ],
   }),
   makeExtract({
     file: "src/auth/login.ts",
     exports: [
-      { name: "login", line: 10 },
-      { name: "handleLogout", line: 25 },
+      { kind: "function", name: "login", line: 10 },
+      { kind: "function", name: "handleLogout", line: 25 },
     ],
   }),
   makeExtract({
     file: "src/utils/format.ts",
     exports: [
-      { name: "getDateString", line: 3 },
-      { name: "isValid", line: 15 },
-      { name: "_internalHelper", line: 20 },
-      { name: "x", line: 30 },
+      { kind: "function", name: "getDateString", line: 3 },
+      { kind: "function", name: "isValid", line: 15 },
+      { kind: "function", name: "_internalHelper", line: 20 },
+      { kind: "function", name: "x", line: 30 },
     ],
   }),
 ];
@@ -58,15 +58,15 @@ describe("dual-generator", () => {
       const outOfOrder: AstExtract[] = [
         makeExtract({
           file: "src/utils/zoo.ts",
-          exports: [{ name: "zoo", line: 1 }],
+          exports: [{ kind: "function", name: "zoo", line: 1 }],
         }),
         makeExtract({
           file: "src/auth/login.ts",
-          exports: [{ name: "login", line: 1 }],
+          exports: [{ kind: "function", name: "login", line: 1 }],
         }),
         makeExtract({
           file: "src/api/routes.ts",
-          exports: [{ name: "routes", line: 1 }],
+          exports: [{ kind: "function", name: "routes", line: 1 }],
         }),
       ];
 
@@ -108,15 +108,15 @@ describe("dual-generator", () => {
       const extracts: AstExtract[] = [
         makeExtract({
           file: "src/utils/format.ts",
-          exports: [{ name: "getDateString", line: 1 }],
+          exports: [{ kind: "function", name: "getDateString", line: 1 }],
         }),
         makeExtract({
           file: "src/utils/validate.ts",
-          exports: [{ name: "isValidEmail", line: 1 }],
+          exports: [{ kind: "function", name: "isValidEmail", line: 1 }],
         }),
         makeExtract({
           file: "src/utils/handler.ts",
-          exports: [{ name: "handleSubmit", line: 1 }],
+          exports: [{ kind: "function", name: "handleSubmit", line: 1 }],
         }),
       ];
 
@@ -174,7 +174,7 @@ describe("dual-generator", () => {
         ...sampleExtracts,
         makeExtract({
           file: "src/tests/login.test.ts",
-          exports: [{ name: "loginTest", line: 1 }],
+          exports: [{ kind: "function", name: "loginTest", line: 1 }],
         }),
       ];
 
