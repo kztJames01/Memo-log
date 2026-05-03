@@ -61,6 +61,14 @@ export function generateDualOutput(
       let techLabel: string;
       if (registry) {
         techLabel = `${registry.tech}: \`${exp.name}\``;
+      } else if (exp.kind === "function") {
+        techLabel = `Function/Method: \`${exp.name}\``;
+      } else if (exp.kind === "class" || exp.kind === "type") {
+        techLabel = `Class/Type: \`${exp.name}\``;
+      } else if (exp.kind === "const") {
+        techLabel = `Constant/Module: \`${exp.name}\``;
+      } else if (exp.kind === "default") {
+        techLabel = `Default export: \`${exp.name}\``;
       } else if (exp.name[0] === exp.name[0]?.toUpperCase()) {
         techLabel = `Class/Component: \`${exp.name}\``;
       } else if (exp.name.startsWith("use")) {
@@ -74,6 +82,12 @@ export function generateDualOutput(
       let simpleLabel: string;
       if (registry) {
         simpleLabel = `${registry.simple}: ${humanized}`;
+      } else if (exp.kind === "class" || exp.kind === "type") {
+        simpleLabel = `Data structure or type: ${humanized}`;
+      } else if (exp.kind === "const") {
+        simpleLabel = `Constant or config value: ${humanized}`;
+      } else if (exp.kind === "function") {
+        simpleLabel = `Function: ${humanized}`;
       } else if (exp.name[0] === exp.name[0]?.toUpperCase()) {
         simpleLabel = `UI component or data structure: ${humanized}`;
       } else if (exp.name.startsWith("is") || exp.name.startsWith("has")) {

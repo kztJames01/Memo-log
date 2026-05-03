@@ -258,10 +258,12 @@ async function runStructuralScanWithDetails(
         const relativeFilePath = normalizeRelativePath(path.relative(manifest.rootPath, filePath));
         extracts.push({
           file: relativeFilePath,
+          lang: parsed.lang,
           exports: parsed.exports.map((exp) => ({
             name: exp.name,
             line: exp.line,
             column: exp.column,
+            kind: exp.kind,
           })),
           imports: parsed.imports.map((imp) => imp.path),
           signatures: parsed.signatures.map((sig) => sig.signature),
