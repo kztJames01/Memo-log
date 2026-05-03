@@ -73,7 +73,7 @@ export {
   writeStateAtomic,
   clearState,
   getDiffSummary,
-  STATE_DIR
+  STATE_DIR,
 };
 
 export type {

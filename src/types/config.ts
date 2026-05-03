@@ -50,7 +50,7 @@ export type AiMemoryConfigOverrides = z.infer<
 >;
 
 export const DEFAULT_AI_MEMORY_CONFIG: AiMemoryConfig = {
-  languages: ["ts", "tsx", "js", "jsx", "mjs", "cjs"],
+  languages: ["ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "pyi", "rs", "go"],
   exclude: [".git", "node_modules", "dist", "build", ".ai-memory"],
   output: {
     markdown: "AI_MEMORY.md",
