@@ -4,16 +4,20 @@ import { createHash } from "node:crypto";
 import {
   SAFE_EXTENSIONS,
   PARSER_LIMITS,
+  detectLang,
   type ParserPlugin,
   type ParsedFile,
   type BabelAst,
 } from "./types.js";
 import { jsTsParser } from "./jsTs.js";
+import { pythonParser } from "./python.js";
+import { rustParser } from "./rust.js";
+import { goParser } from "./go.js";
 import { safeRegexParse } from "./safeParse.js";
 import { withTimeout } from "./timeout.js";
 
-// currently supported parser plugins.
-const parserPlugins: ParserPlugin[] = [jsTsParser];
+// all registered parser plugins.
+const parserPlugins: ParserPlugin[] = [jsTsParser, pythonParser, rustParser, goParser];
 
 // checks if the file path is allowed for parsing.
 export function isSafeToParse(filePath: string): boolean {
@@ -79,12 +83,14 @@ export async function parseFile(
 ): Promise<ParsedFile> {
   const warnings: string[] = [];
   const contentHash = computeContentHash(content);
+  const lang = detectLang(filePath);
 
   // skip disallowed files before doing any heavy work.
   if (!isSafeToParse(filePath)) {
     warnings.push(`SKIP: Unsafe or unsupported extension: ${filePath}`);
     return {
       path: filePath,
+      lang,
       contentHash,
       exports: [],
       imports: [],
@@ -99,6 +105,7 @@ export async function parseFile(
     warnings.push(`SKIP: File exceeds ${PARSER_LIMITS.MAX_FILE_SIZE_BYTES} byte limit: ${filePath}`);
     return {
       path: filePath,
+      lang,
       contentHash,
       exports: [],
       imports: [],
@@ -119,6 +126,7 @@ export async function parseFile(
     warnings.push(...regexWarnings);
     return {
       path: filePath,
+      lang,
       contentHash,
       exports: result.exports,
       imports: result.imports,
@@ -135,6 +143,7 @@ export async function parseFile(
     warnings.push(`SKIP: No parser for extension: ${filePath}`);
     return {
       path: filePath,
+      lang,
       contentHash,
       exports: [],
       imports: [],
@@ -173,6 +182,7 @@ export async function parseFile(
 
     return {
       path: filePath,
+      lang,
       contentHash,
       exports: result.exports,
       imports: result.imports,
@@ -192,6 +202,7 @@ export async function parseFile(
 
   return {
     path: filePath,
+    lang,
     contentHash,
     exports: extraction.exports,
     imports: extraction.imports,
@@ -205,13 +216,13 @@ export async function parseFile(
 // extracts data using parser-specific behavior.
 function extractFromAst(
   parser: ParserPlugin,
-  ast: BabelAst,
+  ast: unknown,
   filePath: string,
   content: string
 ): { exports: ParsedFile["exports"]; imports: ParsedFile["imports"]; signatures: ParsedFile["signatures"]; jsdoc?: ParsedFile["jsdoc"] } {
   // js/ts parser uses source content to recover jsdoc snippets.
   if (parser === jsTsParser) {
-    const result = jsTsParser.extract(ast, filePath, content);
+    const result = jsTsParser.extract(ast as BabelAst, filePath, content);
     return {
       exports: result.exports,
       imports: result.imports,
@@ -220,7 +231,7 @@ function extractFromAst(
     };
   }
 
-  const result = parser.extract(ast, filePath);
+  const result = parser.extract(ast, filePath, content);
   return {
     exports: result.exports,
     imports: result.imports,
@@ -245,4 +256,39 @@ export function registerParser(plugin: ParserPlugin): void {
 // returns extensions this runtime can parse safely.
 export function getSupportedExtensions(): readonly string[] {
   return SAFE_EXTENSIONS;
+}
+
+// validates a ParsedFile object conforms to schema across all languages.
+export function validateParsedFile(file: unknown): ParsedFile {
+  if (!file || typeof file !== "object") {
+    throw new Error("validateParsedFile: expected object, got " + typeof file);
+  }
+
+  const f = file as Record<string, unknown>;
+
+  if (typeof f.path !== "string") throw new Error("validateParsedFile: missing or invalid path");
+  if (typeof f.contentHash !== "string" || f.contentHash.length !== 64) {
+    throw new Error("validateParsedFile: missing or invalid contentHash");
+  }
+  if (!Array.isArray(f.exports)) throw new Error("validateParsedFile: exports is not an array");
+  if (!Array.isArray(f.imports)) throw new Error("validateParsedFile: imports is not an array");
+  if (!Array.isArray(f.signatures)) throw new Error("validateParsedFile: signatures is not an array");
+  if (typeof f.usedFallback !== "boolean") throw new Error("validateParsedFile: usedFallback is not boolean");
+  if (!Array.isArray(f.warnings)) throw new Error("validateParsedFile: warnings is not an array");
+
+  for (const exp of f.exports) {
+    const e = exp as Record<string, unknown>;
+    if (typeof e.name !== "string") throw new Error("validateParsedFile: export missing name");
+    if (typeof e.kind !== "string") throw new Error("validateParsedFile: export missing kind");
+    if (typeof e.line !== "number") throw new Error("validateParsedFile: export missing line");
+  }
+
+  for (const imp of f.imports) {
+    const i = imp as Record<string, unknown>;
+    if (typeof i.path !== "string") throw new Error("validateParsedFile: import missing path");
+    if (!Array.isArray(i.names)) throw new Error("validateParsedFile: import missing names");
+    if (typeof i.line !== "number") throw new Error("validateParsedFile: import missing line");
+  }
+
+  return f as unknown as ParsedFile;
 }

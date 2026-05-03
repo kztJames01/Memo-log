@@ -1,6 +1,5 @@
 import type { File } from "@babel/types";
 
-// normalized export kinds emitted by parser plugins.
 export type ExportKind = "function" | "class" | "const" | "type" | "default";
 
 export interface Export {
@@ -36,8 +35,31 @@ export interface JsDocBlock {
   returns?: string | undefined;
 }
 
+export type SupportedLang = "ts" | "py" | "rs" | "go";
+
+export const LANG_EXTENSIONS: Record<string, SupportedLang> = {
+  ".ts": "ts",
+  ".tsx": "ts",
+  ".js": "ts",
+  ".jsx": "ts",
+  ".mjs": "ts",
+  ".cjs": "ts",
+  ".py": "py",
+  ".pyi": "py",
+  ".rs": "rs",
+  ".go": "go",
+};
+
+export function detectLang(filePath: string): SupportedLang | undefined {
+  const lastDot = filePath.lastIndexOf(".");
+  if (lastDot === -1) return undefined;
+  const ext = filePath.substring(lastDot).toLowerCase();
+  return LANG_EXTENSIONS[ext];
+}
+
 export interface ParsedFile {
   path: string;
+  lang?: SupportedLang | undefined;
   contentHash: string;
   exports: Export[];
   imports: Import[];
@@ -63,24 +85,29 @@ export interface ParseResult {
   parseTimeMs?: number;
 }
 
-// parser plugin contract used by parser registry in index.ts.
-export interface ParserPlugin {
+export interface GenericParseResult<TAst = unknown> {
+  success: boolean;
+  ast?: TAst;
+  error?: string;
+  parseTimeMs?: number;
+}
+
+export interface ParserPlugin<TAst = unknown> {
   readonly extensions: readonly string[];
   readonly language: string;
+  readonly lang: SupportedLang;
   parse(
     content: string,
     filePath: string,
     timeoutMs?: number
-  ): ParseResult;
-  // content is optional so lightweight parsers can ignore source text.
-  extract(ast: BabelAst, filePath: string, content?: string): ExtractionResult;
+  ): GenericParseResult<TAst>;
+  extract(ast: TAst, filePath: string, content?: string): ExtractionResult;
 }
 
-// hard limits keep parser work bounded and deterministic.
 export const PARSER_LIMITS = {
   MAX_FILE_SIZE_BYTES: 2 * 1024 * 1024,
   MAX_PARSE_TIME_MS: 500,
   MAX_FALLBACK_SIZE_BYTES: 100 * 1024,
 } as const;
 
-export const SAFE_EXTENSIONS = [".js", ".ts", ".jsx", ".tsx"] as const;
+export const SAFE_EXTENSIONS = [".js", ".ts", ".jsx", ".tsx", ".py", ".pyi", ".rs", ".go"] as const;
