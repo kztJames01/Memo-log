@@ -63,7 +63,7 @@ async function seedChaosRepository(root: string): Promise<void> {
 
 describe("anti-hallucination chaos validation", () => {
   it("ensures all generated claims are backed by valid [file:line] references", async () => {
-    const root = await makeTempDir("aimemory-chaos-refs-");
+    const root = await makeTempDir("memolog-chaos-refs-");
     await seedChaosRepository(root);
 
     const effectiveConfig = loadEffectiveConfig({ targetDir: root });
@@ -104,7 +104,7 @@ describe("anti-hallucination chaos validation", () => {
   });
 
   it("stays deterministic on repeated scans of the same chaos repo", async () => {
-    const root = await makeTempDir("aimemory-chaos-determinism-");
+    const root = await makeTempDir("memolog-chaos-determinism-");
     await seedChaosRepository(root);
 
     const effectiveConfig = loadEffectiveConfig({ targetDir: root });
@@ -119,8 +119,8 @@ describe("anti-hallucination chaos validation", () => {
     });
     const firstOutput = await fs.readFile(first.markdownPath!, "utf8");
 
-    await fs.rm(path.join(root, ".ai-memory"), { recursive: true, force: true });
-    await fs.rm(path.join(root, "AI_MEMORY.md"), { force: true });
+    await fs.rm(path.join(root, ".memo-log"), { recursive: true, force: true });
+    await fs.rm(path.join(root, "MEMO_LOG.md"), { force: true });
 
     const second = await runScanCommand({
       targetDir: root,

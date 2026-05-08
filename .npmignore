@@ -3,7 +3,7 @@ test/
 .github/
 .kilo/
 Documents/
-.ai-memory/
+.memo-log/
 *.test.ts
 vitest.config.ts
 tsup.config.ts

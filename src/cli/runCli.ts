@@ -41,6 +41,8 @@ interface ScanExecutionOptions {
   maxFileSizeBytes?: number | undefined;
   includeAgentNotes?: boolean | undefined;
   quiet?: boolean | undefined;
+  filter?: string | undefined;
+  trackTypes?: boolean | undefined;
 }
 
 interface ScanExecutionResult {
@@ -110,7 +112,7 @@ const buildProgram = (): Command => {
   const program = new Command();
 
   program
-    .name("ai-memory")
+    .name("memo-log")
     .description("Deterministic project memory generator")
     .showHelpAfterError()
     .exitOverride();
@@ -188,7 +190,10 @@ const buildProgram = (): Command => {
     )
     .option("--quiet", "Suppress warnings")
     .option("--include-agent-notes", "Append agent session notes (marked unverified)")
-    .action(async (targetDir: string, options: RawScanCommandOptions & { quiet?: boolean; includeAgentNotes?: boolean }) => {
+    .addOption(new Option("--filter <level>", "Significance filter").choices(["trivial", "logic", "all"]).default("logic"))
+    .option("--track-types", "Include TypeScript type/interface exports")
+    .option("--watch", "Watch for file changes and auto-regenerate memory files")
+    .action(async (targetDir: string, options: RawScanCommandOptions & { quiet?: boolean; includeAgentNotes?: boolean; filter?: string; trackTypes?: boolean; watch?: boolean }) => {
       const scanOptions: ScanExecutionOptions = { targetDir };
       if (options.mode !== undefined) {
         scanOptions.mode = options.mode;
@@ -226,6 +231,13 @@ const buildProgram = (): Command => {
         scanOptions.quiet = options.quiet;
       }
 
+      if (options.filter !== undefined) {
+        scanOptions.filter = options.filter;
+      }
+      if (options.trackTypes !== undefined) {
+        scanOptions.trackTypes = Boolean(options.trackTypes);
+      }
+
       const effectiveConfig = await loadEffectiveConfig(scanOptions);
       const result: ScanExecutionResult = await runScanCommand({ ...scanOptions, effectiveConfig });
 
@@ -237,6 +249,29 @@ const buildProgram = (): Command => {
         if (result.jsonPath) {
           console.log(`JSON: ${result.jsonPath}`);
         }
+      }
+
+      if (options.watch) {
+        const { startWatcher } = await import("../engine/watcher.js");
+        const sigOptions = {
+          filter: (scanOptions.filter as "trivial" | "logic" | "all") ?? "logic",
+          trackTypes: scanOptions.trackTypes ?? false,
+        };
+        const controller = startWatcher({
+          rootDir: effectiveConfig.rootDir,
+          config: effectiveConfig,
+          sigOptions,
+          quiet: options.quiet ?? false,
+        });
+
+        const shutdown = async () => {
+          await controller.stop();
+          process.exit(0);
+        };
+        process.on("SIGINT", shutdown);
+        process.on("SIGTERM", shutdown);
+
+        await new Promise<void>(() => {});
       }
     });
 

@@ -1,6 +1,6 @@
 # memo-log
 
-A **zero-token, static-analysis CLI** that acts as a **post-execution alignment layer** for AI-written code. It scans what actually exists on disk, generates deterministic dual-audience memory (`AI_MEMORY.md` + `AI_MEMORY.json`), and anchors every claim to source references.
+A **zero-token, static-analysis CLI** that acts as a **post-execution alignment layer** for AI-written code. It scans what actually exists on disk, generates deterministic dual-audience memory (`MEMO_LOG.md` + `MEMO_LOG.json`), and anchors every claim to source references.
 
 ## Why?
 
@@ -28,15 +28,17 @@ Create default config in a project directory:
 memo-log init ./my-project
 ```
 
-Creates `.aimemory.json` with default settings:
+Creates `.memolog.json` with default settings:
 
 ```json
 {
   "languages": ["ts", "tsx", "js", "jsx", "mjs", "cjs"],
-  "exclude": [".git", "node_modules", "dist", "build", ".ai-memory"],
-  "output": { "markdown": "AI_MEMORY.md", "json": "AI_MEMORY.json" },
+  "exclude": [".git", "node_modules", "dist", "build", ".memo-log"],
+  "output": { "markdown": "MEMO_LOG.md", "json": "MEMO_LOG.json" },
   "maxDepth": 20,
-  "mode": "dual"
+  "mode": "dual",
+  "filter": "logic",
+  "trackTypes": false
 }
 ```
 
@@ -59,6 +61,9 @@ memo-log scan ./my-project [options]
 | `--max-file-size-bytes <n>` | integer | 2097152 | Skip files larger than this |
 | `--quiet` | — | — | Suppress warning output |
 | `--include-agent-notes` | — | — | Append agent session notes (marked unverified) |
+| `--filter` | `trivial`, `logic`, `all` | `logic` | Export significance filter |
+| `--track-types` | — | — | Include TypeScript type/interface exports |
+| `--watch` | — | — | Watch for file changes, auto-regenerate |
 
 **Mode descriptions:**
 
@@ -93,7 +98,7 @@ Commit scope mapping:
 
 ## Output
 
-### `AI_MEMORY.md` (Human-readable)
+### `MEMO_LOG.md` (Human-readable)
 
 ```markdown
 # AI Memory Snapshot
@@ -118,11 +123,11 @@ _Last generated: 1970-01-01T00:00:00.000Z_
 - 🔄 **Modified:** `src/auth/login.ts` [changed]
 ```
 
-### `AI_MEMORY.json` (Machine-readable)
+### `MEMO_LOG.json` (Machine-readable)
 
 Schema-validated (Zod) snapshot with version, entries, warnings, and metadata.
 
-### `.ai-memory/state.json` (Internal state)
+### `.memo-log/state.json` (Internal state)
 
 SHA-256 hashes + structural fingerprints for diff/realignment on subsequent scans.
 
@@ -130,7 +135,7 @@ SHA-256 hashes + structural fingerprints for diff/realignment on subsequent scan
 
 On each `scan`, `memo-log`:
 
-1. Loads previous state from `.ai-memory/state.json`
+1. Loads previous state from `.memo-log/state.json`
 2. Scans current code and computes hashes + fingerprints
 3. Classifies every file as `ADDED`, `MODIFIED`, `REMOVED`, or `UNTOUCHED`
 4. Appends `📅 Recent Changes` section to markdown (when previous state exists)
@@ -154,37 +159,31 @@ On each `scan`, `memo-log`:
 1. **Zero external calls** — No HTTP, no LLM, no cloud API. Pure local execution.
 2. **Reference requirement** — Every summary bullet includes `[file:line]` or `[file:line:col]`. Unverifiable claims are dropped.
 3. **Deterministic templates** — Summaries use rule-based conditionals only. No generative language.
-4. **Schema validation** — `AI_MEMORY.json` validated against Zod schema. Invalid → CLI exits with error.
-5. **Hash-verified state** — `.ai-memory/state.json` uses SHA-256 + structural fingerprints for diff.
+4. **Schema validation** — `MEMO_LOG.json` validated against Zod schema. Invalid → CLI exits with error.
+5. **Hash-verified state** — `.memo-log/state.json` uses SHA-256 + structural fingerprints for diff.
 6. **Fail-fast on ambiguity** — If AST parse fails, falls back to regex. Never guesses intent.
 7. **Open audit trail** — All logic is deterministic. Run `memo-log scan` twice on same code → identical output.
 
 ## IDE Compatibility
 
-All AI coding tools (Cursor, Claude Code, GitHub Copilot, Codex, OpenCode) index workspace `.md`/`.json` files. Drop `AI_MEMORY.md` and `AI_MEMORY.json` in your project root — they auto-read it.
-
-| IDE/Agent | Integration |
-|-----------|------------|
-| Cursor / Claude Code / OpenCode | Reads `AI_MEMORY.md`/`.json` natively |
-| GitHub Copilot / VS Code | Same; optional thin extension for Week 2 |
-| Codex | Reads workspace memory files |
-
-No tight coupling. The tool drops structured, version-controlled memory alongside your code.
+All AI coding tools index workspace `.md`/`.json` files. Drop `MEMO_LOG.md` and `MEMO_LOG.json` in your project root — they auto-read it.
 
 ## Configuration
 
-Create `.aimemory.json` in your project root (or run `memo-log init`):
+Create `.memolog.json` in your project root (or run `memo-log init`):
 
 ```json
 {
   "languages": ["ts", "tsx", "js", "jsx"],
-  "exclude": [".git", "node_modules", "dist", "build", ".ai-memory"],
+  "exclude": [".git", "node_modules", "dist", "build", ".memo-log"],
   "output": {
-    "markdown": "AI_MEMORY.md",
-    "json": "AI_MEMORY.json"
+    "markdown": "MEMO_LOG.md",
+    "json": "MEMO_LOG.json"
   },
   "maxDepth": 20,
-  "mode": "dual"
+  "mode": "dual",
+  "filter": "logic",
+  "trackTypes": false
 }
 ```
 

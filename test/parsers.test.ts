@@ -64,8 +64,8 @@ describe("isSafeToParse", () => {
     expect(isSafeToParse("/project/build/app.js")).toBe(false);
   });
 
-  it("should reject .ai-memory directory", () => {
-    expect(isSafeToParse("/project/.ai-memory/state.json")).toBe(false);
+  it("should reject .memo-log directory", () => {
+    expect(isSafeToParse("/project/.memo-log/state.json")).toBe(false);
   });
 });
 

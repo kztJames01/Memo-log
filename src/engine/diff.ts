@@ -5,13 +5,14 @@ import type { AstExtract } from "../types/scan.js";
 import { categorizeFile, CATEGORY_PRIORITY, type Category } from "../types/categories.js";
 import type { MemorySnapshot } from "./anti-hallucination.js";
 
-export const STATE_DIR = ".ai-memory";
+export const STATE_DIR = ".memo-log";
 
 export type ChangeType = "ADDED" | "MODIFIED" | "REMOVED" | "UNTOUCHED";
 
 export interface FileState {
   hash: string;
   fingerprint: string;
+  changedAt: number;
 }
 
 export interface StateV2 {
@@ -83,6 +84,7 @@ export function computeFileState(extract: AstExtract): FileState {
   return {
     hash: computeContentHash(JSON.stringify({ exports: extract.exports, signatures: extract.signatures })),
     fingerprint: computeFingerprint(extract),
+    changedAt: Date.now(),
   };
 }
 
@@ -113,18 +115,19 @@ export function diffStates(
       const diff: FileDiff = { path, changeType: "ADDED", category, previousState: undefined, currentState };
       changes.push(diff);
       added.push(diff);
-    } else {
-      const prev = previousFiles[path];
-      if (!prev || prev.hash !== currentState.hash || prev.fingerprint !== currentState.fingerprint) {
-        const diff: FileDiff = { path, changeType: "MODIFIED", category, previousState: prev, currentState };
-        changes.push(diff);
-        modified.push(diff);
       } else {
-        const diff: FileDiff = { path, changeType: "UNTOUCHED", category, previousState: prev, currentState };
-        changes.push(diff);
-        untouched.push(diff);
+        const prev = previousFiles[path];
+        if (!prev || prev.hash !== currentState.hash || prev.fingerprint !== currentState.fingerprint) {
+          const diff: FileDiff = { path, changeType: "MODIFIED", category, previousState: prev, currentState };
+          changes.push(diff);
+          modified.push(diff);
+        } else {
+          currentState.changedAt = prev.changedAt;
+          const diff: FileDiff = { path, changeType: "UNTOUCHED", category, previousState: prev, currentState };
+          changes.push(diff);
+          untouched.push(diff);
+        }
       }
-    }
   }
 
   for (const prevPath of previousPaths) {
@@ -203,6 +206,11 @@ export function renderRecentChanges(diffResult: DiffResult): string {
     for (const d of removed) {
       lines.push(`- ➖ **Removed:** \`${d.path}\` [deleted]`);
     }
+
+        if (added.length + modified.length > 1) {
+          lines.push("");
+          lines.push(`  📊 ${added.length + modified.length} files impacted`);
+        }
     lines.push("");
   }
 

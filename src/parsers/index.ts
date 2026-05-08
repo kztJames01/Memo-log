@@ -38,7 +38,7 @@ export function isSafeToParse(filePath: string): boolean {
     ".yarnrc",
     "dist/",
     "build/",
-    ".ai-memory",
+    ".memo-log",
   ];
 
   for (const pattern of dangerousPatterns) {

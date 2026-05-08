@@ -3,7 +3,7 @@ export const DEFAULT_EXCLUDES = Object.freeze([
   "node_modules",
   "dist",
   "build",
-  ".ai-memory"
+  ".memo-log"
 ]);
 
 export const DEFAULT_MAX_DEPTH = 64;

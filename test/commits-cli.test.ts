@@ -20,11 +20,11 @@ async function git(cwd: string, args: string[]): Promise<void> {
 
 describe("cli commits command", () => {
   it("prints deterministic grouped commit suggestions in dry-run mode", async () => {
-    const root = await makeTempDir("aimemory-cli-commits-");
+    const root = await makeTempDir("memolog-cli-commits-");
 
     await git(root, ["init"]);
     await git(root, ["config", "user.name", "AI Memory"]);
-    await git(root, ["config", "user.email", "aimemory@example.com"]);
+    await git(root, ["config", "user.email", "memolog@example.com"]);
 
     await fs.mkdir(path.join(root, "src", "auth"), { recursive: true });
     await fs.mkdir(path.join(root, "src", "api"), { recursive: true });

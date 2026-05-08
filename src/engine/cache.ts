@@ -5,7 +5,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync, unlinkS
 import { join } from "node:path";
 import { cpus } from "node:os";
 
-export const CACHE_DIR = ".ai-memory";
+export const CACHE_DIR = ".memo-log";
 
 export interface CacheEntry {
   hash: string;

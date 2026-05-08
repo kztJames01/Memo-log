@@ -11,16 +11,16 @@ async function makeTempDir(prefix: string): Promise<string> {
 }
 
 describe("config validation", () => {
-  it("accepts a valid .aimemory.json", async () => {
-    const root = await makeTempDir("aimemory-config-valid-");
-    const configPath = path.join(root, ".aimemory.json");
+  it("accepts a valid .memolog.json", async () => {
+    const root = await makeTempDir("memolog-config-valid-");
+    const configPath = path.join(root, ".memolog.json");
     await fs.writeFile(
       configPath,
       JSON.stringify(
         {
           languages: ["ts", "js"],
           exclude: ["node_modules", ".git"],
-          output: { markdown: "docs/AI_MEMORY.md", json: "docs/AI_MEMORY.json" },
+          output: { markdown: "docs/MEMO_LOG.md", json: "docs/MEMO_LOG.json" },
           maxDepth: 10,
           mode: "tech"
         },
@@ -37,15 +37,15 @@ describe("config validation", () => {
   });
 
   it("rejects invalid mode", async () => {
-    const root = await makeTempDir("aimemory-config-mode-");
-    const configPath = path.join(root, ".aimemory.json");
+    const root = await makeTempDir("memolog-config-mode-");
+    const configPath = path.join(root, ".memolog.json");
     await fs.writeFile(
       configPath,
       JSON.stringify(
         {
           languages: ["ts"],
           exclude: [".git"],
-          output: { markdown: "AI_MEMORY.md", json: "AI_MEMORY.json" },
+          output: { markdown: "MEMO_LOG.md", json: "MEMO_LOG.json" },
           maxDepth: 5,
           mode: "invalid"
         },
@@ -59,15 +59,15 @@ describe("config validation", () => {
   });
 
   it("rejects negative maxDepth", async () => {
-    const root = await makeTempDir("aimemory-config-depth-");
-    const configPath = path.join(root, ".aimemory.json");
+    const root = await makeTempDir("memolog-config-depth-");
+    const configPath = path.join(root, ".memolog.json");
     await fs.writeFile(
       configPath,
       JSON.stringify(
         {
           languages: ["ts"],
           exclude: [".git"],
-          output: { markdown: "AI_MEMORY.md", json: "AI_MEMORY.json" },
+          output: { markdown: "MEMO_LOG.md", json: "MEMO_LOG.json" },
           maxDepth: -1,
           mode: "simple"
         },
@@ -81,15 +81,15 @@ describe("config validation", () => {
   });
 
   it("rejects malformed output paths", async () => {
-    const root = await makeTempDir("aimemory-config-output-");
-    const configPath = path.join(root, ".aimemory.json");
+    const root = await makeTempDir("memolog-config-output-");
+    const configPath = path.join(root, ".memolog.json");
     await fs.writeFile(
       configPath,
       JSON.stringify(
         {
           languages: ["ts"],
           exclude: [".git"],
-          output: { markdown: "../AI_MEMORY.md", json: "AI_MEMORY.json" },
+          output: { markdown: "../MEMO_LOG.md", json: "MEMO_LOG.json" },
           maxDepth: 5,
           mode: "simple"
         },

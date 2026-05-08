@@ -12,21 +12,21 @@ async function makeTempDir(prefix: string): Promise<string> {
 
 describe("security traversal", () => {
   it("rejects path escape attempts with containment checks", async () => {
-    const root = await makeTempDir("aimemory-security-root-");
-    const outside = await makeTempDir("aimemory-security-outside-");
+    const root = await makeTempDir("memolog-security-root-");
+    const outside = await makeTempDir("memolog-security-outside-");
 
     expect(() => assertPathWithinRoot(root, outside)).toThrow();
   });
 
   it("rejects parent traversal segments even when string points under root", async () => {
-    const root = await makeTempDir("aimemory-security-parent-");
+    const root = await makeTempDir("memolog-security-parent-");
     const craftedPath = `${root}/src/../secret.ts`;
     expect(() => assertPathWithinRoot(root, craftedPath)).toThrow();
   });
 
   it("warns and skips symlink escapes", async () => {
-    const root = await makeTempDir("aimemory-security-symlink-root-");
-    const outside = await makeTempDir("aimemory-security-symlink-outside-");
+    const root = await makeTempDir("memolog-security-symlink-root-");
+    const outside = await makeTempDir("memolog-security-symlink-outside-");
 
     const outsideFile = path.join(outside, "secret.ts");
     await fs.writeFile(outsideFile, "export const secret = true;\n", "utf8");
@@ -42,7 +42,7 @@ describe("security traversal", () => {
   });
 
   it("respects .gitignore and custom excludes", async () => {
-    const root = await makeTempDir("aimemory-security-ignore-");
+    const root = await makeTempDir("memolog-security-ignore-");
     await fs.writeFile(path.join(root, ".gitignore"), "ignored-dir/\nignored.ts\n", "utf8");
     await fs.mkdir(path.join(root, "ignored-dir"), { recursive: true });
     await fs.mkdir(path.join(root, "keep"), { recursive: true });
@@ -64,7 +64,7 @@ describe("security traversal", () => {
   });
 
   it("skips oversized files with warning", async () => {
-    const root = await makeTempDir("aimemory-security-large-");
+    const root = await makeTempDir("memolog-security-large-");
     const hugeFile = path.join(root, "huge.ts");
     await fs.writeFile(hugeFile, "x".repeat(2000), "utf8");
     await fs.writeFile(path.join(root, "small.ts"), "export const x = 1;", "utf8");
@@ -83,7 +83,7 @@ describe("security traversal", () => {
   });
 
   it("fails safeReadFile when discovered size does not match read-time size", async () => {
-    const root = await makeTempDir("aimemory-security-toc-");
+    const root = await makeTempDir("memolog-security-toc-");
     const filePath = path.join(root, "module.ts");
     await fs.writeFile(filePath, "export const value = 1;\n", "utf8");
 
