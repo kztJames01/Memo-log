@@ -15,7 +15,10 @@ import type { AstExtract } from "../types/scan.js";
 import { WarningLimiter } from "../security/safeRead.js";
 
 export type Mode = "tech" | "simple" | "dual";
-const DETERMINISTIC_GENERATED_AT = "1970-01-01T00:00:00.000Z";
+
+interface OutputMetadataOptions {
+  generatedAt?: string;
+}
 
 function humanizeExportName(name: string): string {
   const cleanName = name
@@ -29,6 +32,7 @@ export function generateDualOutput(
   astExtracts: AstExtract[],
   _mode: Mode,
   targetDir = process.cwd(),
+  options: OutputMetadataOptions = {},
 ): MemorySnapshot {
   const entries: ReturnType<typeof MemoryEntrySchema.parse>[] = [];
   const warnings: string[] = [];
@@ -123,7 +127,7 @@ export function generateDualOutput(
 
   const snapshot = {
     version: 2 as const,
-    generatedAt: DETERMINISTIC_GENERATED_AT,
+    generatedAt: options.generatedAt ?? new Date().toISOString(),
     targetDir,
     entries,
     warnings,
@@ -167,11 +171,29 @@ export function renderMarkdown(data: MemorySnapshot, mode: Mode): string {
       for (const [category, catEntries] of byCategory) {
         const emoji = CATEGORY_EMOJI[category] ?? "\u{1F4E6}";
         lines.push(`### ${emoji} ${humanizeCategory(category)}`);
-        for (const entry of catEntries.slice(0, 20)) {
-          lines.push(`- ${entry.simple} ${entry.ref}`);
-        }
-        if (catEntries.length > 20) {
-          lines.push(`- _... and ${catEntries.length - 20} more_`);
+
+        const groups = groupByDirectory(catEntries);
+        const groupsArray = [...groups];
+
+        if (groupsArray.length === 1 && groupsArray[0] !== undefined && groupsArray[0][1].length <= 5) {
+          for (const entry of catEntries) {
+            lines.push(`- ${entry.simple} ${entry.ref}`);
+          }
+        } else {
+          for (const [dir, entries] of groups) {
+            if (entries.length === 1) {
+              lines.push(`- ${entries[0]?.simple ?? ""} ${entries[0]?.ref ?? ""}`);
+            } else {
+              const names = entries
+                .map((e) => extractSymbolName(e.tech))
+                .filter((name) => name.length > 0)
+                .slice(0, 3);
+              const fallbackNames = names.length > 0 ? names : entries.map((e) => extractExportName(e.ref)).slice(0, 3);
+              const remainder = entries.length > 3 ? ` +${entries.length - 3} more` : "";
+              const dirLabel = dir ? `in \`${dir}/\`` : "";
+              lines.push(`- 💡 Updated ${category} logic ${dirLabel}: \`${fallbackNames.join("`, `")}\`${remainder}`);
+            }
+          }
         }
         lines.push("");
       }
@@ -223,6 +245,31 @@ function groupByCategory(entries: MemorySnapshot["entries"]): Map<EntryCategory,
     grouped.set(entry.category, existing);
   }
   return grouped;
+}
+
+function groupByDirectory(entries: MemorySnapshot["entries"]): Map<string, typeof entries> {
+  const grouped = new Map<string, typeof entries>();
+  for (const entry of entries) {
+    const refMatch = entry.ref.match(/^\[(.+)\//);
+    const dir = refMatch?.[1] ?? "";
+    const existing = grouped.get(dir) ?? [];
+    existing.push(entry);
+    grouped.set(dir, existing);
+  }
+  return grouped;
+}
+
+function extractExportName(ref: string): string {
+  const match = ref.match(/^\[(.+?):(\d+)/);
+  if (!match || !match[1]) return "";
+  const parts = match[1].split("/");
+  return parts[parts.length - 1] ?? match[1];
+}
+
+function extractSymbolName(techLabel: string): string {
+  const match = techLabel.match(/`([^`]+)`/);
+  if (!match || !match[1]) return "";
+  return match[1];
 }
 
 function humanizeCategory(category: EntryCategory): string {
