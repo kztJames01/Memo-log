@@ -88,7 +88,7 @@ export async function parseFile(
   // skip disallowed files before doing any heavy work.
   if (!isSafeToParse(filePath)) {
     warnings.push(`SKIP: Unsafe or unsupported extension: ${filePath}`);
-    return {
+    return validateParsedFile({
       path: filePath,
       lang,
       contentHash,
@@ -97,13 +97,13 @@ export async function parseFile(
       signatures: [],
       usedFallback: false,
       warnings,
-    };
+    });
   }
 
   // hard limit to avoid big-file parse pressure.
   if (fileSizeBytes > PARSER_LIMITS.MAX_FILE_SIZE_BYTES) {
     warnings.push(`SKIP: File exceeds ${PARSER_LIMITS.MAX_FILE_SIZE_BYTES} byte limit: ${filePath}`);
-    return {
+    return validateParsedFile({
       path: filePath,
       lang,
       contentHash,
@@ -112,7 +112,7 @@ export async function parseFile(
       signatures: [],
       usedFallback: false,
       warnings,
-    };
+    });
   }
 
   // for large files, use bounded regex parsing instead of full ast.
@@ -124,16 +124,16 @@ export async function parseFile(
       `Regex fallback parse for ${filePath}`,
     );
     warnings.push(...regexWarnings);
-    return {
+    return validateParsedFile({
       path: filePath,
       lang,
       contentHash,
-      exports: result.exports,
-      imports: result.imports,
-      signatures: result.signatures,
+      exports: sortExports(result.exports),
+      imports: sortImports(result.imports),
+      signatures: sortSignatures(result.signatures),
       usedFallback: true,
       warnings,
-    };
+    });
   }
 
   // choose parser by extension.
@@ -141,7 +141,7 @@ export async function parseFile(
 
   if (!parser) {
     warnings.push(`SKIP: No parser for extension: ${filePath}`);
-    return {
+    return validateParsedFile({
       path: filePath,
       lang,
       contentHash,
@@ -150,7 +150,7 @@ export async function parseFile(
       signatures: [],
       usedFallback: false,
       warnings,
-    };
+    });
   }
 
   // timeout wrapper prevents parser hangs from blocking scan.
@@ -180,16 +180,16 @@ export async function parseFile(
     );
     warnings.push(...regexWarnings);
 
-    return {
+    return validateParsedFile({
       path: filePath,
       lang,
       contentHash,
-      exports: result.exports,
-      imports: result.imports,
-      signatures: result.signatures,
+      exports: sortExports(result.exports),
+      imports: sortImports(result.imports),
+      signatures: sortSignatures(result.signatures),
       usedFallback: true,
       warnings,
-    };
+    });
   }
 
   // warn when parse is slow but still valid.
@@ -200,17 +200,17 @@ export async function parseFile(
   // extract normalized structures from ast output.
   const extraction = extractFromAst(parser, parseResult.ast, filePath, content);
 
-  return {
+  return validateParsedFile({
     path: filePath,
     lang,
     contentHash,
-    exports: extraction.exports,
-    imports: extraction.imports,
-    signatures: extraction.signatures,
+    exports: sortExports(extraction.exports),
+    imports: sortImports(extraction.imports),
+    signatures: sortSignatures(extraction.signatures),
     jsdoc: extraction.jsdoc,
     usedFallback: false,
     warnings,
-  };
+  });
 }
 
 // extracts data using parser-specific behavior.
@@ -291,4 +291,32 @@ export function validateParsedFile(file: unknown): ParsedFile {
   }
 
   return f as unknown as ParsedFile;
+}
+
+function sortExports(exports: ParsedFile["exports"]): ParsedFile["exports"] {
+  return [...exports].sort((a, b) => {
+    if (a.line !== b.line) return a.line - b.line;
+    if (a.column !== b.column) return a.column - b.column;
+    const byName = a.name.localeCompare(b.name);
+    if (byName !== 0) return byName;
+    return a.kind.localeCompare(b.kind);
+  });
+}
+
+function sortImports(imports: ParsedFile["imports"]): ParsedFile["imports"] {
+  return [...imports].sort((a, b) => {
+    if (a.line !== b.line) return a.line - b.line;
+    if (a.column !== b.column) return a.column - b.column;
+    const byPath = a.path.localeCompare(b.path);
+    if (byPath !== 0) return byPath;
+    return a.names.join(",").localeCompare(b.names.join(","));
+  });
+}
+
+function sortSignatures(signatures: ParsedFile["signatures"]): ParsedFile["signatures"] {
+  return [...signatures].sort((a, b) => {
+    if (a.line !== b.line) return a.line - b.line;
+    if (a.column !== b.column) return a.column - b.column;
+    return a.name.localeCompare(b.name);
+  });
 }

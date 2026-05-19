@@ -19,6 +19,7 @@ export interface ExportInfo {
 export interface AstExtract {
   file: string;
   lang?: SupportedLang | undefined;
+  contentHash?: string | undefined;
   exports: ExportInfo[];
   imports: string[];
   signatures: string[];
