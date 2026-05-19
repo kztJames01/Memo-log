@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CommitGrouper, type CommitGroup } from "../src/engine/commit-grouper.js";
 import { parseGitNameStatusOutput, type GitChange, GitService } from "../src/engine/git.js";
+import type { AstExtract } from "../src/types/scan.js";
 
 describe("parseGitNameStatusOutput", () => {
   it("parses A/M/D tab-delimited lines", () => {
@@ -455,5 +456,92 @@ describe("git command rendering", () => {
     );
     expect(command).toContain("git add -A --");
     expect(command).toContain("git commit -m");
+  });
+});
+
+describe("CommitGrouper.groupChangesByDependency", () => {
+  it("groups directly dependent changed files together", () => {
+    const changes: GitChange[] = [
+      { status: "M", filePath: "src/api/client.ts" },
+      { status: "M", filePath: "src/auth/login.ts" },
+      { status: "M", filePath: "src/utils/format.ts" },
+    ];
+
+    const extracts: AstExtract[] = [
+      {
+        file: "src/api/client.ts",
+        exports: [{ name: "fetchUser", line: 1, kind: "function" }],
+        imports: ["../auth/login", "../utils/format"],
+        signatures: ["fetchUser()"],
+      },
+      {
+        file: "src/auth/login.ts",
+        exports: [{ name: "loginUser", line: 1, kind: "function" }],
+        imports: [],
+        signatures: ["loginUser()"],
+      },
+      {
+        file: "src/utils/format.ts",
+        exports: [{ name: "formatDate", line: 1, kind: "function" }],
+        imports: [],
+        signatures: ["formatDate()"],
+      },
+    ];
+
+    const groups = CommitGrouper.groupChangesByDependency(changes, extracts);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.files).toEqual([
+      "src/api/client.ts",
+      "src/auth/login.ts",
+      "src/utils/format.ts",
+    ]);
+  });
+
+  it("keeps independent changed files in separate groups", () => {
+    const changes: GitChange[] = [
+      { status: "M", filePath: "src/auth/login.ts" },
+      { status: "M", filePath: "src/components/Button.tsx" },
+    ];
+
+    const extracts: AstExtract[] = [
+      {
+        file: "src/auth/login.ts",
+        exports: [{ name: "loginUser", line: 1, kind: "function" }],
+        imports: [],
+        signatures: ["loginUser()"],
+      },
+      {
+        file: "src/components/Button.tsx",
+        exports: [{ name: "Button", line: 1, kind: "function" }],
+        imports: [],
+        signatures: ["Button()"],
+      },
+    ];
+
+    const groups = CommitGrouper.groupChangesByDependency(changes, extracts);
+    expect(groups).toHaveLength(2);
+    expect(groups[0]!.files.length).toBe(1);
+    expect(groups[1]!.files.length).toBe(1);
+  });
+
+  it("includes removed files as standalone groups when no extract exists", () => {
+    const changes: GitChange[] = [
+      { status: "D", filePath: "src/old/deleted.ts" },
+      { status: "M", filePath: "src/auth/login.ts" },
+    ];
+
+    const extracts: AstExtract[] = [
+      {
+        file: "src/auth/login.ts",
+        exports: [{ name: "loginUser", line: 1, kind: "function" }],
+        imports: [],
+        signatures: ["loginUser()"],
+      },
+    ];
+
+    const groups = CommitGrouper.groupChangesByDependency(changes, extracts);
+    const flattened = groups.flatMap((g) => g.files);
+    expect(flattened).toContain("src/old/deleted.ts");
+    expect(flattened).toContain("src/auth/login.ts");
   });
 });

@@ -1,5 +1,6 @@
 import type { GitChange } from "./git.js";
 import { categorizeFile, type Category } from "../types/categories.js";
+import type { AstExtract } from "../types/scan.js";
 
 export type CommitScope =
   | "auth"
@@ -19,6 +20,8 @@ export interface CommitGroup {
   changes: GitChange[];
   type: ConventionalType;
 }
+
+const DEPENDENCY_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".pyi", ".rs", ".go"];
 
 const SCOPE_ORDER: CommitScope[] = [
   "auth",
@@ -84,6 +87,71 @@ export class CommitGrouper {
     const summary = summarizeScopeChange(group.scope, group.files.length);
     return `${group.type}(${group.scope}): ${summary}`;
   }
+
+  static groupChangesByDependency(changes: GitChange[], extracts: AstExtract[]): CommitGroup[] {
+    if (changes.length === 0) {
+      return [];
+    }
+
+    const normalizedChanges = normalizeChanges(changes);
+    const changedFilePaths = new Set(normalizedChanges.map((change) => change.filePath));
+    const extractMap = new Map<string, AstExtract>();
+    for (const extract of extracts) {
+      extractMap.set(normalizeFilePath(extract.file), extract);
+    }
+
+    const adjacency = new Map<string, Set<string>>();
+    for (const path of changedFilePaths) {
+      adjacency.set(path, new Set<string>());
+    }
+
+    for (const path of changedFilePaths) {
+      const extract = extractMap.get(path);
+      if (!extract) {
+        continue;
+      }
+
+      for (const dependency of resolveLocalDependencies(path, extract.imports)) {
+        if (!changedFilePaths.has(dependency)) {
+          continue;
+        }
+        adjacency.get(path)?.add(dependency);
+        adjacency.get(dependency)?.add(path);
+      }
+    }
+
+    const components = connectedComponents(changedFilePaths, adjacency);
+    const groups = components.map((component) => {
+      const componentChanges = normalizedChanges.filter((change) => component.has(change.filePath));
+      const files = [...component].sort((a, b) => a.localeCompare(b));
+      const scope = inferGroupScope(files);
+      const type = inferConventionalType(scope, componentChanges);
+
+      return {
+        scope,
+        files,
+        changes: componentChanges.sort((a, b) => {
+          const byPath = a.filePath.localeCompare(b.filePath);
+          if (byPath !== 0) {
+            return byPath;
+          }
+          return a.status.localeCompare(b.status);
+        }),
+        type,
+      } satisfies CommitGroup;
+    });
+
+    return groups.sort((a, b) => {
+      if (a.files.length !== b.files.length) {
+        return b.files.length - a.files.length;
+      }
+      const byScope = scopePriority(a.scope) - scopePriority(b.scope);
+      if (byScope !== 0) {
+        return byScope;
+      }
+      return (a.files[0] ?? "").localeCompare(b.files[0] ?? "");
+    });
+  }
 }
 
 function resolveScope(filePath: string): CommitScope {
@@ -95,6 +163,26 @@ function resolveScope(filePath: string): CommitScope {
 
   const category = categorizeFile(normalized);
   return categoryToScope(category);
+}
+
+function inferGroupScope(files: string[]): CommitScope {
+  const score = new Map<CommitScope, number>();
+  for (const filePath of files) {
+    const scope = resolveScope(filePath);
+    score.set(scope, (score.get(scope) ?? 0) + 1);
+  }
+
+  let bestScope: CommitScope = "utils";
+  let bestScore = -1;
+  for (const scope of SCOPE_ORDER) {
+    const current = score.get(scope) ?? 0;
+    if (current > bestScore) {
+      bestScope = scope;
+      bestScore = current;
+    }
+  }
+
+  return bestScope;
 }
 
 function categoryToScope(category: Category): CommitScope {
@@ -149,4 +237,133 @@ function scopePriority(scope: CommitScope): number {
 
 function normalizeFilePath(filePath: string): string {
   return filePath.replace(/\\/g, "/").trim();
+}
+
+function normalizeChanges(changes: GitChange[]): GitChange[] {
+  const deduped = new Map<string, GitChange>();
+  for (const change of changes) {
+    const normalizedPath = normalizeFilePath(change.filePath);
+    const dedupeKey = `${change.status}:${normalizedPath}`;
+    if (!deduped.has(dedupeKey)) {
+      deduped.set(dedupeKey, { ...change, filePath: normalizedPath });
+    }
+  }
+
+  return [...deduped.values()].sort((a, b) => {
+    const byPath = a.filePath.localeCompare(b.filePath);
+    if (byPath !== 0) {
+      return byPath;
+    }
+    return a.status.localeCompare(b.status);
+  });
+}
+
+function connectedComponents(nodes: Set<string>, adjacency: Map<string, Set<string>>): Array<Set<string>> {
+  const visited = new Set<string>();
+  const components: Array<Set<string>> = [];
+
+  for (const node of nodes) {
+    if (visited.has(node)) {
+      continue;
+    }
+
+    const component = new Set<string>();
+    const queue: string[] = [node];
+    visited.add(node);
+
+    while (queue.length > 0) {
+      const current = queue.shift();
+      if (!current) {
+        continue;
+      }
+      component.add(current);
+
+      const neighbors = adjacency.get(current);
+      if (!neighbors) {
+        continue;
+      }
+
+      for (const neighbor of neighbors) {
+        if (visited.has(neighbor)) {
+          continue;
+        }
+        visited.add(neighbor);
+        queue.push(neighbor);
+      }
+    }
+
+    components.push(component);
+  }
+
+  return components;
+}
+
+function resolveLocalDependencies(filePath: string, imports: string[]): string[] {
+  const dirParts = filePath.split("/");
+  dirParts.pop();
+  const currentDir = dirParts.join("/");
+
+  const dependencies = new Set<string>();
+  for (const imp of imports) {
+    const target = normalizeImportPath(currentDir, imp);
+    if (!target) {
+      continue;
+    }
+
+    if (hasKnownExtension(target)) {
+      dependencies.add(target);
+      continue;
+    }
+
+    for (const ext of DEPENDENCY_EXTENSIONS) {
+      dependencies.add(`${target}${ext}`);
+      dependencies.add(`${target}/index${ext}`);
+    }
+  }
+
+  return [...dependencies];
+}
+
+function normalizeImportPath(currentDir: string, importPath: string): string | null {
+  if (importPath.startsWith("./") || importPath.startsWith("../")) {
+    return normalizeRelativeSegments(currentDir, importPath.split("/"));
+  }
+
+  if (importPath.startsWith(".")) {
+    const match = importPath.match(/^(\.+)(.*)$/);
+    if (!match) {
+      return null;
+    }
+    const dots = match[1] ?? "";
+    const remainder = (match[2] ?? "").replace(/^\./, "");
+    const upCount = Math.max(0, dots.length - 1);
+    const upSegments = new Array(upCount).fill("..");
+    const extraSegments = remainder.length > 0 ? remainder.split(".") : [];
+    return normalizeRelativeSegments(currentDir, [...upSegments, ...extraSegments]);
+  }
+
+  return null;
+}
+
+function normalizeRelativeSegments(currentDir: string, rawSegments: string[]): string | null {
+  const segments = currentDir.length > 0 ? currentDir.split("/") : [];
+  for (const rawSegment of rawSegments) {
+    const segment = rawSegment.trim();
+    if (segment.length === 0 || segment === ".") {
+      continue;
+    }
+    if (segment === "..") {
+      if (segments.length === 0) {
+        return null;
+      }
+      segments.pop();
+      continue;
+    }
+    segments.push(segment);
+  }
+  return segments.join("/");
+}
+
+function hasKnownExtension(filePath: string): boolean {
+  return DEPENDENCY_EXTENSIONS.some((ext) => filePath.endsWith(ext));
 }
