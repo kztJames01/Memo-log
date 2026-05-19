@@ -56,6 +56,8 @@ export interface LoadEffectiveConfigOptions {
   config?: string | undefined;
   mode?: AiMemoryMode | undefined;
   maxDepth?: number | undefined;
+  filter?: string | undefined;
+  trackTypes?: boolean | undefined;
 }
 
 export function loadEffectiveConfig(
@@ -67,6 +69,12 @@ export function loadEffectiveConfig(
   }
   if (options.maxDepth !== undefined) {
     overrides.maxDepth = options.maxDepth;
+  }
+  if (options.filter !== undefined) {
+    overrides.filter = options.filter as AiMemoryConfigOverrides["filter"];
+  }
+  if (options.trackTypes !== undefined) {
+    overrides.trackTypes = options.trackTypes;
   }
 
   const loadOptions: LoadAiMemoryConfigOptions = {
@@ -247,7 +255,9 @@ function mergeConfigLayers(
     },
     maxDepth:
       overrideConfig.maxDepth ?? fileConfig.maxDepth ?? defaults.maxDepth,
-    mode: overrideConfig.mode ?? fileConfig.mode ?? defaults.mode
+    mode: overrideConfig.mode ?? fileConfig.mode ?? defaults.mode,
+    filter: overrideConfig.filter ?? fileConfig.filter ?? defaults.filter,
+    trackTypes: overrideConfig.trackTypes ?? fileConfig.trackTypes ?? defaults.trackTypes,
   };
 }
 

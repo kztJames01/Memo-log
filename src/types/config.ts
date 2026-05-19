@@ -1,9 +1,11 @@
 import * as path from "node:path";
 import { z } from "zod";
 
-export const AIMEMORY_CONFIG_FILE = ".aimemory.json";
+export const AIMEMORY_CONFIG_FILE = ".memolog.json";
 
 export const AiMemoryModeSchema = z.enum(["tech", "simple", "dual", "brief"]);
+
+export const FilterLevelSchema = z.enum(["trivial", "logic", "all"]);
 
 const StringListSchema = z.array(z.string().trim().min(1));
 
@@ -29,6 +31,8 @@ export const AiMemoryConfigSchema = z
     output: AiMemoryOutputSchema,
     maxDepth: z.number().int().nonnegative(),
     mode: AiMemoryModeSchema,
+    filter: FilterLevelSchema.optional().default("logic"),
+    trackTypes: z.boolean().optional().default(false),
   })
   .strict();
 
@@ -39,10 +43,13 @@ export const AiMemoryConfigOverridesSchema = z
     output: AiMemoryOutputSchema.partial().optional(),
     maxDepth: z.number().int().nonnegative().optional(),
     mode: AiMemoryModeSchema.optional(),
+    filter: FilterLevelSchema.optional(),
+    trackTypes: z.boolean().optional(),
   })
   .strict();
 
 export type AiMemoryMode = z.infer<typeof AiMemoryModeSchema>;
+export type FilterLevel = z.infer<typeof FilterLevelSchema>;
 export type AiMemoryOutput = z.infer<typeof AiMemoryOutputSchema>;
 export type AiMemoryConfig = z.infer<typeof AiMemoryConfigSchema>;
 export type AiMemoryConfigOverrides = z.infer<
@@ -51,13 +58,15 @@ export type AiMemoryConfigOverrides = z.infer<
 
 export const DEFAULT_AI_MEMORY_CONFIG: AiMemoryConfig = {
   languages: ["ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "pyi", "rs", "go"],
-  exclude: [".git", "node_modules", "dist", "build", ".ai-memory"],
+  exclude: [".git", "node_modules", "dist", "build", ".memo-log"],
   output: {
-    markdown: "AI_MEMORY.md",
-    json: "AI_MEMORY.json",
+    markdown: "MEMO_LOG.md",
+    json: "MEMO_LOG.json",
   },
   maxDepth: 20,
   mode: "dual",
+  filter: "logic",
+  trackTypes: false,
 };
 
 export function normalizeStringList(
@@ -123,6 +132,8 @@ export function normalizeAiMemoryConfig(
     },
     maxDepth: config.maxDepth,
     mode: config.mode,
+    filter: config.filter ?? "logic",
+    trackTypes: config.trackTypes ?? false,
   };
 }
 

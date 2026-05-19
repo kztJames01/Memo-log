@@ -46,11 +46,22 @@ export function loadEffectiveConfig(
   if (options.config !== undefined) {
     effectiveOptions.config = options.config;
   }
-  if (options.mode === "tech" || options.mode === "simple") {
+  if (
+    options.mode === "tech" ||
+    options.mode === "simple" ||
+    options.mode === "dual" ||
+    options.mode === "brief"
+  ) {
     effectiveOptions.mode = options.mode;
   }
   if (options.maxDepth !== undefined) {
     effectiveOptions.maxDepth = options.maxDepth;
+  }
+  if (options.filter !== undefined) {
+    effectiveOptions.filter = options.filter;
+  }
+  if (options.trackTypes !== undefined) {
+    effectiveOptions.trackTypes = options.trackTypes;
   }
 
   return loadEffectiveConfigFromConfig(effectiveOptions);
