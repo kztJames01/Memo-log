@@ -10,6 +10,10 @@ async function makeTempDir(prefix: string): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), prefix));
 }
 
+function normalizeVolatileTimestamps(content: string): string {
+  return content.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g, "<ts>");
+}
+
 describe("cli behavior", () => {
   it("init creates config in empty repo", async () => {
     const root = await makeTempDir("memolog-cli-init-");
@@ -51,7 +55,7 @@ describe("cli behavior", () => {
 
     expect(firstExit).toBe(0);
     expect(secondExit).toBe(0);
-    expect(secondOutput).toBe(firstOutput);
+    expect(normalizeVolatileTimestamps(secondOutput)).toBe(normalizeVolatileTimestamps(firstOutput));
   });
 
   it("scan exits non-zero when --out is used with --format both", async () => {
@@ -73,7 +77,7 @@ describe("cli behavior", () => {
     const root = await makeTempDir("memolog-cli-notes-");
     await runCli(["init", root]);
     await fs.mkdir(path.join(root, "src"), { recursive: true });
-    await fs.writeFile(path.join(root, "src", "feature.ts"), "export const featureFlag = true;\n", "utf8");
+    await fs.writeFile(path.join(root, "src", "feature.ts"), "export function featureFlag() { return true; }\n", "utf8");
     await fs.writeFile(path.join(root, "AGENTS.md"), "# Session\n- Updated feature flag\n", "utf8");
 
     const exitCode = await runCli([
@@ -90,6 +94,8 @@ describe("cli behavior", () => {
     expect(exitCode).toBe(0);
     expect(output).toContain("Session Notes (Unverified Agent Metadata)");
     expect(output).toContain("AGENTS.md");
+    expect(output).toContain("Suggested Commits");
+    expect(output.indexOf("Suggested Commits")).toBeGreaterThan(output.indexOf("Session Notes (Unverified Agent Metadata)"));
   });
 
   it("scan tech mode uses deterministic structural pipeline", async () => {
@@ -108,7 +114,26 @@ describe("cli behavior", () => {
 
     expect(firstExit).toBe(0);
     expect(secondExit).toBe(0);
-    expect(firstOutput).toBe(secondOutput);
+    expect(normalizeVolatileTimestamps(firstOutput)).toBe(normalizeVolatileTimestamps(secondOutput));
     expect(firstOutput).toContain("Engineering Ledger (Technical)");
+  });
+
+  it("scan respects mode from .memolog.json when --mode is omitted", async () => {
+    const root = await makeTempDir("memolog-cli-config-mode-");
+    await runCli(["init", root]);
+    await fs.writeFile(
+      path.join(root, ".memolog.json"),
+      JSON.stringify({ mode: "simple" }),
+      "utf8",
+    );
+    await fs.mkdir(path.join(root, "src"), { recursive: true });
+    await fs.writeFile(path.join(root, "src", "auth.ts"), "export function loginUser() { return true; }\n", "utf8");
+
+    const exit = await runCli(["scan", root, "--format", "md"]);
+    const output = await fs.readFile(path.join(root, "MEMO_LOG.md"), "utf8");
+
+    expect(exit).toBe(0);
+    expect(output).toContain("Executive Brief (Non-Technical)");
+    expect(output).not.toContain("Engineering Ledger (Technical)");
   });
 });

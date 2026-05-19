@@ -38,6 +38,24 @@ export interface DiffResult {
   byCategory: Map<Category, FileDiff[]>;
 }
 
+export interface HistoryChange {
+  path: string;
+  changeType: Exclude<ChangeType, "UNTOUCHED">;
+  category: Category;
+}
+
+export interface HistoryEvent {
+  id: string;
+  generatedAt: string;
+  summary: string;
+  changes: HistoryChange[];
+}
+
+export interface HistoryLogV1 {
+  version: 1;
+  events: HistoryEvent[];
+}
+
 // Normalize path to POSIX separators only — preserves case to avoid
 // collisions on case-sensitive filesystems (Linux, macOS APFS case-sensitive).
 // Previously used .toLowerCase() which caused Foo.ts and foo.ts to collide.
@@ -81,8 +99,15 @@ export function saveState(state: StateV2, rootDir: string): void {
 }
 
 export function computeFileState(extract: AstExtract): FileState {
+  const hashInput =
+    extract.contentHash ??
+    JSON.stringify({
+      exports: extract.exports,
+      imports: extract.imports,
+      signatures: extract.signatures,
+    });
   return {
-    hash: computeContentHash(JSON.stringify({ exports: extract.exports, signatures: extract.signatures })),
+    hash: computeContentHash(hashInput),
     fingerprint: computeFingerprint(extract),
     changedAt: Date.now(),
   };
@@ -176,7 +201,7 @@ export function renderRecentChanges(diffResult: DiffResult): string {
     return "";
   }
 
-  lines.push("## 📅 Recent Changes");
+  lines.push("## Recent Changes");
   lines.push("");
   lines.push(`_Generated: ${new Date().toISOString()}_`);
   lines.push("");
@@ -194,23 +219,22 @@ export function renderRecentChanges(diffResult: DiffResult): string {
       continue;
     }
 
-    const emoji = getCategoryEmoji(category);
-    lines.push(`### ${emoji} ${humanizeCategory(category)}`);
+    lines.push(`### ${humanizeCategory(category)}`);
 
     for (const d of added) {
-      lines.push(`- ➕ **Added:** \`${d.path}\` [new]`);
+      lines.push(`- Added: \`${d.path}\``);
     }
     for (const d of modified) {
-      lines.push(`- 🔄 **Modified:** \`${d.path}\` [changed]`);
+      lines.push(`- Modified: \`${d.path}\``);
     }
     for (const d of removed) {
-      lines.push(`- ➖ **Removed:** \`${d.path}\` [deleted]`);
+      lines.push(`- Removed: \`${d.path}\``);
     }
 
-        if (added.length + modified.length > 1) {
-          lines.push("");
-          lines.push(`  📊 ${added.length + modified.length} files impacted`);
-        }
+    if (added.length + modified.length > 1) {
+      lines.push("");
+      lines.push(`- Files impacted: ${added.length + modified.length}`);
+    }
     lines.push("");
   }
 
@@ -218,20 +242,6 @@ export function renderRecentChanges(diffResult: DiffResult): string {
   lines.push("");
 
   return lines.join("\n");
-}
-
-function getCategoryEmoji(category: Category): string {
-  const emojiMap: Record<Category, string> = {
-    auth: "\u{1F510}",
-    api: "\u{1F310}",
-    components: "\u{1F9E9}",
-    utils: "\u{1F527}",
-    config: "\u2699\u{FE0F}",
-    test: "\u{1F9EA}",
-    styles: "\u{1F3A8}",
-    other: "\u{1F4E6}",
-  };
-  return emojiMap[category] ?? "\u{1F4E6}";
 }
 
 function humanizeCategory(category: Category): string {
@@ -246,6 +256,89 @@ function humanizeCategory(category: Category): string {
     other: "Other Modules",
   };
   return nameMap[category] ?? category;
+}
+
+export function loadHistory(rootDir: string): HistoryLogV1 {
+  const historyFile = join(rootDir, STATE_DIR, "history.json");
+  if (!existsSync(historyFile)) {
+    return { version: 1, events: [] };
+  }
+
+  try {
+    const raw = readFileSync(historyFile, "utf-8");
+    const parsed = JSON.parse(raw) as HistoryLogV1;
+    if (parsed.version !== 1 || !Array.isArray(parsed.events)) {
+      return { version: 1, events: [] };
+    }
+    return parsed;
+  } catch {
+    return { version: 1, events: [] };
+  }
+}
+
+export function saveHistory(rootDir: string, history: HistoryLogV1): void {
+  atomicWriteJsonSync(join(rootDir, STATE_DIR), "history.json", history);
+}
+
+export function appendHistoryEvent(
+  rootDir: string,
+  diffResult: DiffResult,
+  generatedAt: string,
+  maxEvents = 100,
+): HistoryLogV1 {
+  const changes = diffResult.changes
+    .filter((change): change is FileDiff & { changeType: Exclude<ChangeType, "UNTOUCHED"> } => change.changeType !== "UNTOUCHED")
+    .sort((a, b) => a.path.localeCompare(b.path))
+    .map((change) => ({
+      path: change.path,
+      changeType: change.changeType,
+      category: change.category,
+    }));
+
+  if (changes.length === 0) {
+    return loadHistory(rootDir);
+  }
+
+  const history = loadHistory(rootDir);
+  const summary = getDiffSummary(diffResult);
+  const event: HistoryEvent = {
+    id: createHistoryEventId(generatedAt, summary),
+    generatedAt,
+    summary,
+    changes,
+  };
+
+  history.events.push(event);
+  history.events = history.events.slice(-maxEvents);
+  saveHistory(rootDir, history);
+  return history;
+}
+
+export function renderChangeHistory(history: HistoryLogV1): string {
+  if (history.events.length === 0) {
+    return "";
+  }
+
+  const lines: string[] = [];
+  lines.push("## Change History");
+  lines.push("");
+
+  const latest = history.events[history.events.length - 1];
+  if (latest) {
+    lines.push("### Latest Change");
+    lines.push(`- Timestamp: ${latest.generatedAt}`);
+    lines.push(`- Summary: ${latest.summary}`);
+    lines.push(`- Entries: ${latest.changes.length}`);
+    lines.push("");
+  }
+
+  lines.push("### Timeline");
+  const timeline = [...history.events].reverse();
+  for (const event of timeline) {
+    lines.push(`- ${event.generatedAt} | ${event.summary} | ${event.changes.length} entries`);
+  }
+  lines.push("");
+  return lines.join("\n");
 }
 
 export function appendRecentChanges(
@@ -315,6 +408,15 @@ export function clearState(rootDir: string): void {
       // ignore
     }
   }
+
+  const historyFile = join(rootDir, STATE_DIR, "history.json");
+  if (existsSync(historyFile)) {
+    try {
+      unlinkSync(historyFile);
+    } catch {
+      // ignore
+    }
+  }
 }
 
 export function getDiffSummary(diffResult: DiffResult): string {
@@ -345,4 +447,11 @@ function atomicWriteJsonSync(dir: string, fileName: string, data: unknown): void
     }
     throw new Error(`Atomic write failed: could not rename temp file to ${targetFile}`);
   }
+}
+
+function createHistoryEventId(generatedAt: string, summary: string): string {
+  return createHash("sha256")
+    .update(`${generatedAt}|${summary}`)
+    .digest("hex")
+    .substring(0, 16);
 }

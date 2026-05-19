@@ -11,6 +11,10 @@ async function makeTempDir(prefix: string): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), prefix));
 }
 
+function normalizeVolatileTimestamps(content: string): string {
+  return content.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g, "<ts>");
+}
+
 async function seedChaosRepository(root: string): Promise<void> {
   await fs.mkdir(path.join(root, "src", "auth"), { recursive: true });
   await fs.mkdir(path.join(root, "src", "api"), { recursive: true });
@@ -132,6 +136,6 @@ describe("anti-hallucination chaos validation", () => {
     });
     const secondOutput = await fs.readFile(second.markdownPath!, "utf8");
 
-    expect(secondOutput).toBe(firstOutput);
+    expect(normalizeVolatileTimestamps(secondOutput)).toBe(normalizeVolatileTimestamps(firstOutput));
   });
 });

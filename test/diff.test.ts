@@ -157,6 +157,7 @@ describe("diff engine", () => {
           "src/utils/helper.ts": {
             hash: "oldhash123",
             fingerprint: "oldfingerprint",
+            changedAt: 0,
           },
         },
       };
@@ -185,6 +186,7 @@ describe("diff engine", () => {
           "src/old-file.ts": {
             hash: "somehash",
             fingerprint: "somefingerprint",
+            changedAt: 0,
           },
         },
       };
@@ -266,8 +268,8 @@ describe("diff engine", () => {
         version: 2 as const,
         lastRun: new Date().toISOString(),
         files: {
-          "src/modified.ts": { hash: "old", fingerprint: "old" },
-          "src/removed.ts": { hash: "old", fingerprint: "old" },
+          "src/modified.ts": { hash: "old", fingerprint: "old", changedAt: 0 },
+          "src/removed.ts": { hash: "old", fingerprint: "old", changedAt: 0 },
         },
       };
 
@@ -356,7 +358,7 @@ describe("diff engine", () => {
         version: 2 as const,
         lastRun: new Date().toISOString(),
         files: {
-          "src/deleted.ts": { hash: "hash", fingerprint: "fp" },
+          "src/deleted.ts": { hash: "hash", fingerprint: "fp", changedAt: 0 },
         },
       };
 
@@ -423,7 +425,7 @@ describe("diff engine", () => {
         version: 2 as const,
         lastRun: new Date().toISOString(),
         files: {
-          "src/Deleted.ts": { hash: "hash", fingerprint: "fp" },
+          "src/Deleted.ts": { hash: "hash", fingerprint: "fp", changedAt: 0 },
         },
       };
 

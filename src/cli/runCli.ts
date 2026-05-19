@@ -13,7 +13,6 @@ import {
 // CLI entry point for deterministic project memory generation
 // Supports three main operations: init, commits, and scan
 type ScanMode = "tech" | "simple" | "dual" | "brief";  // Different scanning strategies
-const DEFAULT_SCAN_MODE: ScanMode = "dual";  // Default scanning mode
 type ScanFormat = "md" | "json" | "both";  // Output formats for scan results
 
 interface InitCommandOptions {
@@ -50,6 +49,11 @@ interface ScanExecutionResult {
   jsonPath?: string | undefined;
   warnings: string[];
   totalFiles: number;
+}
+
+interface CommitCommandOptions {
+  apply?: boolean;
+  dryRun?: boolean;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -108,6 +112,49 @@ const printErrorIfNeeded = (error: unknown): void => {
   console.error("Command failed.");
 };
 
+const runCommitsCommand = async (
+  targetDir: string,
+  options: CommitCommandOptions,
+): Promise<void> => {
+  const GitService = await import("../engine/git.js").then(m => m.GitService);
+  const CommitGrouper = await import("../engine/commit-grouper.js").then(m => m.CommitGrouper);
+
+  const git = new GitService(targetDir);
+  const changes = await git.getChangedFiles();
+
+  if (changes.length === 0) {
+    console.log("No changes detected since HEAD.");
+    return;
+  }
+
+  const groups = CommitGrouper.groupChanges(changes);
+  if (options.apply && options.dryRun) {
+    throw new InvalidArgumentError("Use either --apply or --dry-run, not both.");
+  }
+
+  const apply = Boolean(options.apply);
+  const dryRun = !apply;
+
+  console.log("\nSuggested commit groups:\n");
+  for (const group of groups) {
+    const msg = CommitGrouper.generateMessage(group);
+    const command = git.renderCommitCommand(group.files, msg);
+
+    console.log(`- ${msg}`);
+    console.log(`  files: ${group.files.join(", ")}`);
+    console.log(`  cmd: ${command}`);
+
+    if (!dryRun) {
+      await git.commitFiles(group.files, msg);
+      console.log(`  committed: ${msg}`);
+    }
+  }
+
+  if (dryRun) {
+    console.log("\nDry-run mode. Re-run with --apply to execute commits.");
+  }
+};
+
 const buildProgram = (): Command => {
   const program = new Command();
 
@@ -130,54 +177,19 @@ const buildProgram = (): Command => {
     .argument("[targetDir]", "Directory to analyze", ".")
     .option("--dry-run", "Print commit commands without executing them")
     .option("--apply", "Automatically execute git commit commands")
-    .action(async (targetDir: string, options: { apply?: boolean; dryRun?: boolean }) => {
-      const GitService = await import("../engine/git.js").then(m => m.GitService);
-      const CommitGrouper = await import("../engine/commit-grouper.js").then(m => m.CommitGrouper);
+    .action(runCommitsCommand);
 
-      const git = new GitService(targetDir);
-      const changes = await git.getChangedFiles();
-
-      if (changes.length === 0) {
-        console.log("No changes detected since HEAD.");
-        return;
-      }
-
-      const groups = CommitGrouper.groupChanges(changes);
-      if (options.apply && options.dryRun) {
-        throw new InvalidArgumentError("Use either --apply or --dry-run, not both.");
-      }
-
-      const apply = Boolean(options.apply);
-      const dryRun = !apply;
-
-      console.log("\nSuggested commit groups:\n");
-      for (const group of groups) {
-        const msg = CommitGrouper.generateMessage(group);
-        const command = git.renderCommitCommand(group.files, msg);
-
-        console.log(`- ${msg}`);
-        console.log(`  files: ${group.files.join(", ")}`);
-        console.log(`  cmd: ${command}`);
-
-        if (!dryRun) {
-          const result = await git.commitFiles(group.files, msg);
-          if (result.stdout.trim().length > 0) {
-            console.log(`  committed: ${msg}`);
-          } else {
-            console.log(`  committed: ${msg}`);
-          }
-        }
-      }
-
-      if (dryRun) {
-        console.log("\nDry-run mode. Re-run with --apply to execute commits.");
-      }
-    });
+  program
+    .command("commit")
+    .argument("[targetDir]", "Directory to analyze", ".")
+    .option("--dry-run", "Print commit commands without executing them")
+    .option("--apply", "Automatically execute git commit commands")
+    .action(runCommitsCommand);
 
   program
     .command("scan")
     .argument("<targetDir>", "Directory to scan")
-    .addOption(new Option("--mode <mode>").choices(["tech", "simple", "dual", "brief"]).default(DEFAULT_SCAN_MODE))
+    .addOption(new Option("--mode <mode>").choices(["tech", "simple", "dual", "brief"]))
     .option("--out <path>", "Output file path (requires --format md or json)")
     .addOption(new Option("--format <format>").choices(["md", "json", "both"]).default("both"))
     .option("--config [path]", "Config file path override")
@@ -190,7 +202,7 @@ const buildProgram = (): Command => {
     )
     .option("--quiet", "Suppress warnings")
     .option("--include-agent-notes", "Append agent session notes (marked unverified)")
-    .addOption(new Option("--filter <level>", "Significance filter").choices(["trivial", "logic", "all"]).default("logic"))
+    .addOption(new Option("--filter <level>", "Significance filter").choices(["trivial", "logic", "all"]))
     .option("--track-types", "Include TypeScript type/interface exports")
     .option("--watch", "Watch for file changes and auto-regenerate memory files")
     .action(async (targetDir: string, options: RawScanCommandOptions & { quiet?: boolean; includeAgentNotes?: boolean; filter?: string; trackTypes?: boolean; watch?: boolean }) => {

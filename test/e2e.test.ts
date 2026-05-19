@@ -12,6 +12,10 @@ async function makeTempDir(prefix: string): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), prefix));
 }
 
+function normalizeVolatileTimestamps(content: string): string {
+  return content.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g, "<ts>");
+}
+
 async function seedProject(root: string): Promise<void> {
   await fs.mkdir(path.join(root, "src", "auth"), { recursive: true });
   await fs.mkdir(path.join(root, "src", "api"), { recursive: true });
@@ -116,6 +120,8 @@ describe("e2e: init → scan → update pipeline", () => {
     expect(md).toContain("AI Memory Snapshot");
     expect(md).toContain("Executive Brief");
     expect(md).toContain("Engineering Ledger");
+    expect(md).toContain("Change History");
+    expect(md).toContain("Suggested Commits");
 
     // Step 6: state was written
     const state = loadState(root);
@@ -155,6 +161,9 @@ describe("e2e: init → scan → update pipeline", () => {
 
     const md3 = await fs.readFile(third.markdownPath!, "utf8");
     expect(md3).toContain("Recent Changes");
+    expect(md3).toContain("Latest Change");
+    expect(md3).toContain("Suggested Commits");
+    expect(md3).toContain("cmd:");
   });
 
   it("scan detects removed files via diff", async () => {
@@ -196,6 +205,6 @@ describe("e2e: init → scan → update pipeline", () => {
     const second = await runScanCommand({ targetDir: root, mode: "tech", format: "md", quiet: true, effectiveConfig });
     const secondMd = await fs.readFile(second.markdownPath!, "utf8");
 
-    expect(secondMd).toBe(firstMd);
+    expect(normalizeVolatileTimestamps(secondMd)).toBe(normalizeVolatileTimestamps(firstMd));
   });
 });
