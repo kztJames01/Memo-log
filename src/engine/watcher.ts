@@ -4,12 +4,13 @@ import fs from "node:fs/promises";
 import { realpathSync } from "node:fs";
 import { cpus } from "node:os";
 
-import { parseFile } from "../parsers/index.js";
+import { loadCache, saveCache, createEmptyCache, type ProjectCache } from "./cache.js";
+import { resolveExtractForFile, removeCacheEntry } from "./cachedParse.js";
 import { safeReadFile } from "../security/safeRead.js";
 import { normalizeRelativePath } from "../security/index.js";
 import type { LoadedAiMemoryConfig } from "./config.js";
 import type { AstExtract } from "../types/scan.js";
-import { filterExports, type SignificanceOptions } from "./significance.js";
+import type { SignificanceOptions } from "./significance.js";
 import {
   buildCurrentState,
   loadState,
@@ -105,6 +106,7 @@ export function startWatcher(options: WatcherOptions): WatcherController {
   let pendingFiles: PendingFile[] = [];
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let watcher: FSWatcher | null = null;
+  const projectCache: ProjectCache = loadCache(resolvedRoot) ?? createEmptyCache();
 
   const extensions = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".pyi", ".rs", ".go"];
   const excludeGlobs = [...defaultExcludes, ...config.config.exclude];
@@ -152,6 +154,8 @@ export function startWatcher(options: WatcherOptions): WatcherController {
         delete previousState.files[normalized];
         delete previousState.files[relPath];
         writeStateAtomic(previousState, resolvedRoot);
+        removeCacheEntry(projectCache, relPath);
+        saveCache(projectCache, resolvedRoot);
         log(`File removed: ${relPath}`);
         await rewriteOutputs(resolvedRoot, config);
       }
@@ -172,33 +176,22 @@ export function startWatcher(options: WatcherOptions): WatcherController {
     const previousState = loadState(resolvedRoot);
     const relPath = normalizeRelativePath(path.relative(resolvedRoot, filePath));
 
-    const parsed = await parseFile(filePath, content, fileSize);
+    const resolved = await resolveExtractForFile(
+      filePath,
+      relPath,
+      content,
+      fileSize,
+      projectCache,
+      sigOptions,
+    );
 
-    if (parsed.exports.length === 0) {
+    if (!resolved.extract) {
+      removeCacheEntry(projectCache, relPath);
+      saveCache(projectCache, resolvedRoot);
       return;
     }
 
-    const mappedExports = parsed.exports.map((exp) => ({
-      name: exp.name,
-      line: exp.line,
-      column: exp.column,
-      kind: exp.kind,
-    }));
-
-    const { tracked } = filterExports(mappedExports, relPath, sigOptions);
-
-    if (tracked.length === 0) {
-      return;
-    }
-
-    const extract: AstExtract = {
-      file: relPath,
-      lang: parsed.lang,
-      contentHash: parsed.contentHash,
-      exports: tracked,
-      imports: parsed.imports.map((imp) => imp.path),
-      signatures: parsed.signatures.map((sig) => sig.signature),
-    };
+    const extract = resolved.extract;
 
     const currentExtracts: AstExtract[] = [extract];
 
@@ -213,7 +206,10 @@ export function startWatcher(options: WatcherOptions): WatcherController {
     }
 
     writeStateAtomic(newState, resolvedRoot);
-    log(`File ${eventType === "add" ? "added" : "changed"}: ${relPath}`);
+    projectCache.lastScan = new Date().toISOString();
+    saveCache(projectCache, resolvedRoot);
+    const cacheNote = resolved.fromCache ? " (cache hit)" : "";
+    log(`File ${eventType === "add" ? "added" : "changed"}: ${relPath}${cacheNote}`);
     await rewriteOutputs(resolvedRoot, config);
   }
 
@@ -235,27 +231,16 @@ export function startWatcher(options: WatcherOptions): WatcherController {
         }
 
         try {
-          const parsed = await parseFile(absolutePath, content, fileSize);
-          if (parsed.exports.length === 0) continue;
-
-          const mappedExports = parsed.exports.map((exp) => ({
-            name: exp.name,
-            line: exp.line,
-            column: exp.column,
-            kind: exp.kind,
-          }));
-
-          const { tracked } = filterExports(mappedExports, filePath, sigOptions);
-          if (tracked.length === 0) continue;
-
-          allExtracts.push({
-            file: filePath,
-            lang: parsed.lang,
-            contentHash: parsed.contentHash,
-            exports: tracked,
-            imports: parsed.imports.map((imp) => imp.path),
-            signatures: parsed.signatures.map((sig) => sig.signature),
-          });
+          const resolved = await resolveExtractForFile(
+            absolutePath,
+            filePath,
+            content,
+            fileSize,
+            projectCache,
+            sigOptions,
+          );
+          if (!resolved.extract) continue;
+          allExtracts.push(resolved.extract);
         } catch {
           continue;
         }
@@ -273,6 +258,8 @@ export function startWatcher(options: WatcherOptions): WatcherController {
     try {
       await writeFileAtomic(defaultJsonPath, `${JSON.stringify(validatedSnapshot, null, 2)}\n`);
       await writeFileAtomic(defaultMarkdownPath, `${markdown}\n`);
+      projectCache.lastScan = new Date().toISOString();
+      saveCache(projectCache, root);
     } catch (err) {
       log(`WARN: Failed to write output: ${err instanceof Error ? err.message : String(err)}`);
     }

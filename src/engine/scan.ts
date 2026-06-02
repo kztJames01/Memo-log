@@ -4,7 +4,14 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 
 import { generateDualOutput, renderBriefMode, renderMarkdown } from "../output/dual-generator.js";
-import { parseFile } from "../parsers/index.js";
+import {
+  loadCache,
+  saveCache,
+  createEmptyCache,
+  updateCalibration,
+  type ProjectCache,
+} from "./cache.js";
+import { resolveExtractForFile } from "./cachedParse.js";
 import { walkDirectory, normalizeRelativePath } from "../security/index.js";
 import { safeReadFile, WarningLimiter, buildManifestSizeMap } from "../security/safeRead.js";
 import type { ScanManifest } from "../security/types.js";
@@ -25,7 +32,7 @@ import {
   loadHistory,
   type DiffResult,
 } from "./diff.js";
-import { filterExports, type SignificanceOptions } from "./significance.js";
+import type { SignificanceOptions } from "./significance.js";
 import { CommitGrouper } from "./commit-grouper.js";
 import type { GitChange } from "./git.js";
 import { GitService } from "./git.js";
@@ -249,6 +256,10 @@ async function runStructuralScanWithDetails(
   const warningLimiter = new WarningLimiter();
   const warnings: string[] = [...manifest.warnings];
   const files = manifest.files;
+  const projectCache: ProjectCache = loadCache(resolvedTargetDir) ?? createEmptyCache();
+  let totalParseMs = 0;
+  let parsedFileCount = 0;
+  const concurrency = projectCache.calibration.concurrency;
 
   for (let i = 0; i < files.length; i += FILE_BATCH_SIZE) {
     const batch = files.slice(i, i + FILE_BATCH_SIZE);
@@ -274,38 +285,28 @@ async function runStructuralScanWithDetails(
       }
 
       try {
-        const parsed = await parseFile(filePath, result.value.content, result.value.size);
-        for (const parseWarning of parsed.warnings) {
+        const relativeFilePath = normalizeRelativePath(path.relative(manifest.rootPath, filePath));
+        const resolved = await resolveExtractForFile(
+          filePath,
+          relativeFilePath,
+          result.value.content,
+          result.value.size,
+          projectCache,
+          sigOptions,
+        );
+        totalParseMs += resolved.parseMs;
+        if (!resolved.fromCache) {
+          parsedFileCount += 1;
+        }
+        for (const parseWarning of resolved.warnings) {
           warningLimiter.emit(warnings, parseWarning);
         }
 
-        if (parsed.exports.length === 0) {
+        if (!resolved.extract) {
           continue;
         }
 
-        const relativeFilePath = normalizeRelativePath(path.relative(manifest.rootPath, filePath));
-
-        const mappedExports = parsed.exports.map((exp) => ({
-          name: exp.name,
-          line: exp.line,
-          column: exp.column,
-          kind: exp.kind,
-        }));
-
-        const { tracked } = filterExports(mappedExports, relativeFilePath, sigOptions);
-
-        if (tracked.length === 0) {
-          continue;
-        }
-
-        extracts.push({
-          file: relativeFilePath,
-          lang: parsed.lang,
-          contentHash: parsed.contentHash,
-          exports: tracked,
-          imports: parsed.imports.map((imp) => imp.path),
-          signatures: parsed.signatures.map((sig) => sig.signature),
-        });
+        extracts.push(resolved.extract);
       } catch (error) {
         warningLimiter.emit(
           warnings,
@@ -316,6 +317,11 @@ async function runStructuralScanWithDetails(
   }
 
   warningLimiter.flush(warnings);
+
+  projectCache.lastScan = new Date().toISOString();
+  updateCalibration(projectCache, totalParseMs, parsedFileCount > 0 ? parsedFileCount : files.length, concurrency);
+  saveCache(projectCache, resolvedTargetDir);
+
   return {
     extracts,
     warnings,

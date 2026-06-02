@@ -5,12 +5,24 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync, unlinkS
 import { join } from "node:path";
 import { cpus } from "node:os";
 
+import type { SupportedLang } from "../parsers/types.js";
+import type { AstExtract, ExportInfo } from "../types/scan.js";
+
 export const CACHE_DIR = ".memo-log";
+
+export interface CachedFileData {
+  lang?: SupportedLang | undefined;
+  exports: ExportInfo[];
+  imports: string[];
+  signatures: string[];
+}
 
 export interface CacheEntry {
   hash: string;
   category: string;
+  fingerprint: string;
   exports: string[];
+  data: CachedFileData;
   mtime: number;
   size: number;
 }
@@ -71,9 +83,56 @@ export function saveCache(cache: ProjectCache, rootDir: string): void {
   }
 }
 
+// structural fingerprint for export list (same idea as diff.ts)
+export function structuralFingerprint(exports: ExportInfo[], imports: string[], signatures: string[]): string {
+  const exportNames = exports.map((e) => e.name).sort().join(",");
+  const importPaths = imports.slice().sort().join(",");
+  return `${exportNames}|${importPaths}|${signatures.length}`;
+}
+
+export function buildCacheEntry(
+  parsedExports: ExportInfo[],
+  imports: string[],
+  signatures: string[],
+  lang: SupportedLang | undefined,
+  contentHash: string,
+  category: string,
+  size: number,
+): CacheEntry {
+  const fp = structuralFingerprint(parsedExports, imports, signatures);
+  return {
+    hash: contentHash,
+    category,
+    fingerprint: fp,
+    exports: parsedExports.map((e) => e.name).sort(),
+    data: {
+      lang,
+      exports: parsedExports,
+      imports,
+      signatures,
+    },
+    mtime: Date.now(),
+    size,
+  };
+}
+
+export function extractFromCacheEntry(relPath: string, entry: CacheEntry): AstExtract | null {
+  if (!entry.data?.exports) {
+    return null;
+  }
+  return {
+    file: relPath,
+    lang: entry.data.lang,
+    contentHash: entry.hash,
+    exports: entry.data.exports,
+    imports: entry.data.imports,
+    signatures: entry.data.signatures,
+  };
+}
+
 // Check if file has changed by comparing content hash with cache entry
 export function hasFileChanged(
-  filePath: string,
+  _filePath: string,
   content: string,
   cached: CacheEntry | undefined
 ): boolean {
