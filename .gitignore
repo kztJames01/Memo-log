@@ -6,3 +6,6 @@ coverage/
 *.log
 .test-diff
 .memo-log
+MEMO_LOG.md
+MEMO_LOG.json
+.ai-memory/

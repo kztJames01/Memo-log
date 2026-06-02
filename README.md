@@ -63,7 +63,8 @@ memo-log scan ./my-project [options]
 | `--include-agent-notes` | — | — | Append agent session notes (marked unverified) |
 | `--filter` | `trivial`, `logic`, `all` | `logic` | Export significance filter |
 | `--track-types` | — | — | Include TypeScript type/interface exports |
-| `--watch` | — | — | Watch for file changes, auto-regenerate |
+| `--watch` | — | — | Watch for file changes, auto-regenerate (first run also needs `--confirm`) |
+| `--confirm` | — | — | One-time opt-in for watch mode (writes `.memo-log/watch.confirmed`) |
 
 **Mode descriptions:**
 
@@ -185,6 +186,22 @@ Create `.memolog.json` in your project root (or run `memo-log init`):
   "filter": "logic",
   "trackTypes": false
 }
+```
+
+## Local development (this repo)
+
+Source lives in `src/`; the CLI binary runs from `dist/`. After pulling changes, rebuild before using `npx memo-log`:
+
+```bash
+npm install          # runs prepare → npm run build
+npm run build        # if you skipped install or changed src/
+npx memo-log scan . --watch --confirm
+```
+
+Run from TypeScript without building:
+
+```bash
+npm run dev -- scan . --watch --confirm
 ```
 
 ## Requirements

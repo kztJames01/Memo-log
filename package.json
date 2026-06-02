@@ -25,6 +25,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
+    "prepare": "npm run build",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
@@ -58,7 +59,7 @@
     "tsup": "^8.3.5",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
-    "vitest": "^3.2.4"
+    "vitest": "^4.1.8"
   },
   "resolutions": {
     "@babel/parser": "^7.26.5"
