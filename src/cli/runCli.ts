@@ -205,7 +205,8 @@ const buildProgram = (): Command => {
     .addOption(new Option("--filter <level>", "Significance filter").choices(["trivial", "logic", "all"]))
     .option("--track-types", "Include TypeScript type/interface exports")
     .option("--watch", "Watch for file changes and auto-regenerate memory files")
-    .action(async (targetDir: string, options: RawScanCommandOptions & { quiet?: boolean; includeAgentNotes?: boolean; filter?: string; trackTypes?: boolean; watch?: boolean }) => {
+    .option("--confirm", "Confirm first-time watch mode for this project")
+    .action(async (targetDir: string, options: RawScanCommandOptions & { quiet?: boolean; includeAgentNotes?: boolean; filter?: string; trackTypes?: boolean; watch?: boolean; confirm?: boolean }) => {
       const scanOptions: ScanExecutionOptions = { targetDir };
       if (options.mode !== undefined) {
         scanOptions.mode = options.mode;
@@ -264,6 +265,9 @@ const buildProgram = (): Command => {
       }
 
       if (options.watch) {
+        const { assertWatchAllowed } = await import("../engine/watchConfirm.js");
+        assertWatchAllowed(effectiveConfig.rootDir, options.confirm === true);
+
         const { startWatcher } = await import("../engine/watcher.js");
         const sigOptions = {
           filter: (scanOptions.filter as "trivial" | "logic" | "all") ?? "logic",
