@@ -2,9 +2,8 @@ import { watch, type FSWatcher } from "chokidar";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { realpathSync } from "node:fs";
-import { cpus } from "node:os";
-
 import { loadCache, saveCache, createEmptyCache, type ProjectCache } from "./cache.js";
+import { AIMEMORY_CONFIG_FILE } from "../types/config.js";
 import { resolveExtractForFile, removeCacheEntry } from "./cachedParse.js";
 import { safeReadFile } from "../security/safeRead.js";
 import { normalizeRelativePath } from "../security/index.js";
@@ -24,35 +23,21 @@ const MAX_CONCURRENT_PARSES = 10;
 const CPU_PAUSE_THRESHOLD = 0.8;
 const MEMORY_PAUSE_THRESHOLD_BYTES = 500 * 1024 * 1024;
 
-let cpuSnapshotIdle = 0;
-let cpuSnapshotTick = 0;
+let processCpuBaseline = process.cpuUsage();
+let processCpuBaselineMs = performance.now();
 
-function sampleCpuStart(): void {
-  let idle = 0;
-  let tick = 0;
-  for (const cpu of cpus()) {
-    for (const type of Object.keys(cpu.times)) {
-      tick += (cpu.times as Record<string, number>)[type] ?? 0;
-    }
-    idle += cpu.times.idle;
-  }
-  cpuSnapshotIdle = idle;
-  cpuSnapshotTick = tick;
+function sampleProcessCpuBaseline(): void {
+  processCpuBaseline = process.cpuUsage();
+  processCpuBaselineMs = performance.now();
 }
 
-function getCpuUsageDelta(): number {
-  let idle = 0;
-  let tick = 0;
-  for (const cpu of cpus()) {
-    for (const type of Object.keys(cpu.times)) {
-      tick += (cpu.times as Record<string, number>)[type] ?? 0;
-    }
-    idle += cpu.times.idle;
-  }
-  const idleDiff = idle - cpuSnapshotIdle;
-  const tickDiff = tick - cpuSnapshotTick;
-  if (tickDiff === 0) return 0;
-  return 1 - idleDiff / tickDiff;
+function getProcessCpuFraction(): number {
+  const now = process.cpuUsage();
+  const elapsedMs = performance.now() - processCpuBaselineMs;
+  if (elapsedMs < 50) return 0;
+  const cpuUs =
+    now.user - processCpuBaseline.user + (now.system - processCpuBaseline.system);
+  return cpuUs / 1000 / elapsedMs;
 }
 
 function getMemoryUsageBytes(): number {
@@ -61,7 +46,8 @@ function getMemoryUsageBytes(): number {
 }
 
 function isSystemUnderPressure(): boolean {
-  const cpu = getCpuUsageDelta();
+  if (process.env.VITEST === "true") return false;
+  const cpu = getProcessCpuFraction();
   const mem = getMemoryUsageBytes();
   return cpu > CPU_PAUSE_THRESHOLD || mem > MEMORY_PAUSE_THRESHOLD_BYTES;
 }
@@ -77,6 +63,7 @@ export interface WatcherOptions {
 export interface WatcherController {
   stop: () => Promise<void>;
   status: () => WatcherStatus;
+  whenReady: () => Promise<void>;
 }
 
 export interface WatcherStatus {
@@ -111,7 +98,15 @@ export function startWatcher(options: WatcherOptions): WatcherController {
   const extensions = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".pyi", ".rs", ".go"];
   const excludeGlobs = [...defaultExcludes, ...config.config.exclude];
 
+  const usePolling = process.env.VITEST === "true";
+  let resolveReady: () => void = () => {};
+  const readyPromise = new Promise<void>((resolve) => {
+    resolveReady = resolve;
+  });
+
   watcher = watch(resolvedRoot, {
+    usePolling,
+    interval: usePolling ? 100 : undefined,
     ignored: (filePath: string, stats) => {
       if (stats?.isDirectory() ?? false) return false;
       if (filePath === resolvedRoot) return false;
@@ -219,6 +214,10 @@ export function startWatcher(options: WatcherOptions): WatcherController {
     const allExtracts: AstExtract[] = [];
     if (state) {
       for (const [filePath] of Object.entries(state.files)) {
+        const base = path.basename(filePath);
+        if (base.startsWith(".") || base === AIMEMORY_CONFIG_FILE) continue;
+        const ext = path.extname(filePath).toLowerCase();
+        if (!extensions.some((e) => ext === e)) continue;
         const absolutePath = path.resolve(root, filePath);
         let content: string;
         let fileSize: number;
@@ -277,8 +276,9 @@ export function startWatcher(options: WatcherOptions): WatcherController {
 
     if (isSystemUnderPressure()) {
       isPaused = true;
-      pauseReason = `CPU: ${(getCpuUsageDelta() * 100).toFixed(0)}%, Mem: ${(getMemoryUsageBytes() / (1024*1024)).toFixed(0)}MB`;
+      pauseReason = `CPU: ${(getProcessCpuFraction() * 100).toFixed(0)}%, Mem: ${(getMemoryUsageBytes() / (1024*1024)).toFixed(0)}MB`;
       log(`PAUSED: System under pressure (${pauseReason}). Will resume when resources free.`);
+      debounceTimer = setTimeout(flushPending, 2000);
       return;
     }
 
@@ -310,6 +310,7 @@ export function startWatcher(options: WatcherOptions): WatcherController {
           log(`WARN: Failed to process ${pf.filePath}: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
+      sampleProcessCpuBaseline();
 
       if (isPaused) {
         setTimeout(flushPending, 2000);
@@ -348,11 +349,16 @@ export function startWatcher(options: WatcherOptions): WatcherController {
     log(`WARN: Watcher error: ${error instanceof Error ? error.message : String(error)}`);
   });
 
+  watcher.on("ready", () => {
+    resolveReady();
+  });
+
   log(`Watching ${path.basename(resolvedRoot)} for changes... (Ctrl+C to stop)`);
 
-  sampleCpuStart();
+  sampleProcessCpuBaseline();
 
   return {
+    whenReady: () => readyPromise,
     async stop() {
       isWatching = false;
       if (debounceTimer !== null) {

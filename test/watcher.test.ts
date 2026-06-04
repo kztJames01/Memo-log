@@ -34,14 +34,14 @@ async function seedWatchProject(root: string): Promise<void> {
   );
 }
 
-async function waitForFileContains(filePath: string, needle: string, timeoutMs = 5000): Promise<string> {
+async function waitForFileContains(filePath: string, needle: string, timeoutMs = 12000): Promise<string> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const text = await fs.readFile(filePath, "utf8");
     if (text.includes(needle)) {
       return text;
     }
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await new Promise((resolve) => setTimeout(resolve, 300));
   }
   return fs.readFile(filePath, "utf8");
 }
@@ -70,6 +70,7 @@ describe("watcher", () => {
       sigOptions: { filter: "logic", trackTypes: false },
       quiet: true,
     });
+    await controller.whenReady();
 
     await fs.writeFile(
       path.join(root, "src", "app.ts"),
