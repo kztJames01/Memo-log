@@ -65,6 +65,8 @@ memo-log scan ./my-project [options]
 | `--track-types` | — | — | Include TypeScript type/interface exports |
 | `--watch` | — | — | Watch for file changes, auto-regenerate (first run also needs `--confirm`) |
 | `--confirm` | — | — | One-time opt-in for watch mode (writes `.memo-log/watch.confirmed`) |
+| `--infer-runtime` | — | — | **Opt-in (Phase 4):** static AST-only call graph, API endpoints, data flows. Writes `MEMO_LOG_INFERENCE.md` |
+| `--agent-ui` | — | — | **Opt-in (Phase 4):** compare against previous scan, flag multi-agent export conflicts. Writes `MEMO_LOG_CONFLICTS.md` |
 
 **Mode descriptions:**
 
@@ -164,6 +166,73 @@ On each `scan`, `memo-log`:
 5. **Hash-verified state** — `.memo-log/state.json` uses SHA-256 + structural fingerprints for diff.
 6. **Fail-fast on ambiguity** — If AST parse fails, falls back to regex. Never guesses intent.
 7. **Open audit trail** — All logic is deterministic. Run `memo-log scan` twice on same code → identical output.
+
+## Phase 3: VS Code Extension (v2)
+
+The `packages/vscode-extension/` directory contains a native VS Code extension that exposes AI Memory directly in the IDE.
+
+**Security model:**
+- Read-only — the extension never writes to your source files
+- Disabled by default in untrusted workspaces (controlled by VS Code's `capabilities.untrustedWorkspaces`)
+- No network calls, no `eval`, no `new Function`, no dynamic imports
+- CLI execution via `execa` with argument arrays (no shell interpolation), whitelisted to `scan` and `audit` only
+- All file reads go through VS Code's sandboxed `workspace.fs` API
+
+**Features:**
+| Feature | Description |
+|---------|-------------|
+| AI Memory sidebar | Reads `MEMO_LOG.md` from workspace root — never writes |
+| Code lens | `[Memory]` label on exported functions/classes; hover shows tech + simple summary |
+| Command palette | `memo-log: Scan Now` — runs CLI, shows output in panel |
+| Status bar | Shows last scan time, file count, warnings |
+
+**Opt-in:** Enable via workspace settings (`memo-log.enabled = true`). Prompts on first activation.
+
+## Phase 4: Runtime Inference + Multi-Agent UI (v2, opt-in)
+
+### `--infer-runtime` flag (static only, no execution)
+
+```bash
+memo-log scan ./my-project --infer-runtime
+```
+
+Performs AST-only analysis (same-file scope) and writes `MEMO_LOG_INFERENCE.md`:
+- **Call graph** — which functions call which, within the same file
+- **API endpoint mapping** — extracts route definitions (`app.get(...)`, `@Get(...)`)
+- **Data flow hints** — tracks input params through variable assignments to output
+- **Safety**: files containing `eval`, `new Function`, or `import()` emit `WARN: DYNAMIC_CODE_SKIPPED` and are skipped entirely. No code is ever executed.
+
+### `--agent-ui` flag (multi-agent conflict detection)
+
+```bash
+memo-log scan ./my-project --agent-ui
+```
+
+Compares current parse results against the previous scan stored in `.memo-log/state.json` and writes `MEMO_LOG_CONFLICTS.md`:
+- **HIGH** — same export name, different signature (coordinate before merge)
+- **MEDIUM** — same export, different line number (likely safe reorder)
+- Includes deterministic resolution suggestions grouped by file
+- Report is SHA-256 hash-signed for audit integrity
+
+### `audit` command
+
+```bash
+memo-log audit [targetDir] [--format json|text] [--out <path>]
+```
+
+Exports a Zod-validated, SHA-256 hash-signed audit trail from `.memo-log/` state files.
+
+```bash
+# Export to stdout
+memo-log audit ./my-project --format json
+
+# Export to file
+memo-log audit ./my-project --format json --out audit.json
+
+# Determinism check
+memo-log audit . --out audit1.json && memo-log audit . --out audit2.json
+diff audit1.json audit2.json  # events array should be identical
+```
 
 ## IDE Compatibility
 
