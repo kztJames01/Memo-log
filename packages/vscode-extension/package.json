@@ -1,0 +1,76 @@
+{
+  "name": "memo-log-vscode",
+  "displayName": "Memo-log",
+  "description": "Read-only deterministic AI memory viewer for VS Code. Zero network, zero eval, zero hallucination.",
+  "version": "1.0.0",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "publisher": "kaungzawthant",
+  "license": "MIT",
+  "categories": ["Other"],
+  "activationEvents": [
+    "workspaceContains:MEMO_LOG.md",
+    "workspaceContains:MEMO_LOG.json",
+    "workspaceContains:.memolog.json"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "memo-log.scanNow",
+        "title": "memo-log: Scan Now",
+        "category": "Memo-log"
+      },
+      {
+        "command": "memo-log.openMemory",
+        "title": "memo-log: Open AI Memory",
+        "category": "Memo-log"
+      }
+    ],
+    "views": {
+      "explorer": [
+        {
+          "id": "memo-log.memoryPanel",
+          "name": "AI Memory",
+          "when": "memo-log.hasMemory"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Memo-log",
+      "properties": {
+        "memo-log.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable Memo-log extension. Must be explicitly enabled. Disabled by default in untrusted workspaces."
+        },
+        "memo-log.scanOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically run scan when files are saved (opt-in)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "watch": "tsc -watch -p tsconfig.json",
+    "package": "vsce package",
+    "test": "node dist/test/runTests.js"
+  },
+  "dependencies": {
+    "execa": "^8.0.1"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@vscode/test-electron": "^2.3.8",
+    "typescript": "^5.7.2"
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "Memo-log requires a trusted workspace to execute the memo-log CLI."
+    }
+  }
+}
