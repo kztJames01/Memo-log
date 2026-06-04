@@ -8,6 +8,7 @@ import {
   resolveAndAssertPath,
   resolveSecureRoot
 } from "./pathGuards.js";
+import { AIMEMORY_CONFIG_FILE } from "../types/config.js";
 import {
   DEFAULT_EXCLUDES,
   DEFAULT_MAX_DEPTH,
@@ -44,11 +45,17 @@ function toDeterministicWarningString(warning: TraversalWarning): string {
 }
 
 function matchesDefaultExclude(relativePath: string): boolean {
-  const segments = normalizeRelativePath(relativePath)
-    .split("/")
-    .filter(Boolean);
+  const normalized = normalizeRelativePath(relativePath);
+  if (normalized === AIMEMORY_CONFIG_FILE || normalized.endsWith(`/${AIMEMORY_CONFIG_FILE}`)) {
+    return true;
+  }
+
+  const segments = normalized.split("/").filter(Boolean);
 
   for (const segment of segments) {
+    if (segment.startsWith(".") && segment !== "..") {
+      return true;
+    }
     if (DEFAULT_EXCLUDES.includes(segment)) {
       return true;
     }
