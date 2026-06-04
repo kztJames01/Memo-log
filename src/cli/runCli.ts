@@ -9,6 +9,8 @@ import {
   loadEffectiveConfig,
   runScanCommand,
 } from "../engine/index.js";
+import type { AuditOptions } from "./audit.js";
+import type { ParsedFile } from "../parsers/types.js";
 
 // CLI entry point for deterministic project memory generation
 // Supports three main operations: init, commits, and scan
@@ -206,7 +208,9 @@ const buildProgram = (): Command => {
     .option("--track-types", "Include TypeScript type/interface exports")
     .option("--watch", "Watch for file changes and auto-regenerate memory files")
     .option("--confirm", "Confirm first-time watch mode for this project")
-    .action(async (targetDir: string, options: RawScanCommandOptions & { quiet?: boolean; includeAgentNotes?: boolean; filter?: string; trackTypes?: boolean; watch?: boolean; confirm?: boolean }) => {
+    .option("--infer-runtime", "Opt-in: static AST-only runtime inference (call graph, API endpoints, data flows)")
+    .option("--agent-ui", "Opt-in: compare against previous scan and flag multi-agent conflicts")
+    .action(async (targetDir: string, options: RawScanCommandOptions & { quiet?: boolean; includeAgentNotes?: boolean; filter?: string; trackTypes?: boolean; watch?: boolean; confirm?: boolean; inferRuntime?: boolean; agentUi?: boolean }) => {
       const scanOptions: ScanExecutionOptions = { targetDir };
       if (options.mode !== undefined) {
         scanOptions.mode = options.mode;
@@ -254,6 +258,15 @@ const buildProgram = (): Command => {
       const effectiveConfig = await loadEffectiveConfig(scanOptions);
       const result: ScanExecutionResult = await runScanCommand({ ...scanOptions, effectiveConfig });
 
+      // Phase 4 opt-ins — only run when explicitly requested
+      if (options.inferRuntime) {
+        await runRuntimeInference(targetDir);
+      }
+
+      if (options.agentUi) {
+        await runAgentConflictDetection(targetDir, options.quiet ?? false);
+      }
+
       if (!options.quiet) {
         console.log(`Scanned ${result.totalFiles} files.`);
         if (result.markdownPath) {
@@ -291,9 +304,120 @@ const buildProgram = (): Command => {
       }
     });
 
-  // Configure and return the CLI program with all commands and options
+  // Phase 4: audit command — deterministic, Zod-validated, hash-signed export
+  program
+    .command("audit")
+    .argument("[targetDir]", "Directory to audit", ".")
+    .addOption(new Option("--format <format>", "Output format").choices(["json", "text"]).default("json"))
+    .option("--out <path>", "Write output to file instead of stdout")
+    .action(async (targetDir: string, options: { format: "json" | "text"; out?: string }) => {
+      const { runAuditCommand } = await import("./audit.js");
+      const auditOpts: AuditOptions = { targetDir, format: options.format };
+      if (options.out !== undefined) auditOpts.out = options.out;
+      await runAuditCommand(auditOpts);
+    });
+
   return program;
 };
+
+async function runRuntimeInference(targetDir: string): Promise<void> {
+  const { inferBatch, renderInferenceMarkdown } = await import("../engine/runtimeInference.js");
+  const { parseFile } = await import("../parsers/index.js");
+  const { assertPathWithinRoot, normalizeRelativePath, resolveSecureRoot } = await import("../security/pathGuards.js");
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const { randomUUID } = await import("node:crypto");
+
+  const absoluteTarget = path.resolve(targetDir);
+  const secureRoot = await resolveSecureRoot(absoluteTarget);
+  const jsonPath = path.join(secureRoot, "MEMO_LOG.json");
+  const filePaths: string[] = [];
+  try {
+    const raw = await fs.readFile(jsonPath, "utf8");
+    const parsed = JSON.parse(raw) as { entries?: Array<{ ref: string }> };
+    const refs = parsed.entries ?? [];
+    const seen = new Set<string>();
+    for (const entry of refs) {
+      const m = entry.ref.match(/^\[(.+?):\d+/);
+      if (!m?.[1]) continue;
+      let rel = "";
+      try {
+        rel = normalizeRelativePath(m[1]);
+        if (!rel || rel.includes("..")) continue;
+      } catch {
+        continue;
+      }
+      const fp = path.resolve(secureRoot, rel);
+      try {
+        assertPathWithinRoot(secureRoot, fp);
+      } catch {
+        continue;
+      }
+      if (!seen.has(fp)) {
+        seen.add(fp);
+        filePaths.push(fp);
+      }
+    }
+  } catch {
+    console.warn("WARN: --infer-runtime: could not read MEMO_LOG.json. Run scan first.");
+    return;
+  }
+
+  const maxInferenceFiles = 50;
+  if (filePaths.length > maxInferenceFiles) {
+    console.warn(`WARN: INFERENCE_FILE_CAP_APPLIED — omitted ${filePaths.length - maxInferenceFiles} file(s) beyond first ${maxInferenceFiles}.`);
+  }
+
+  const pairs: Array<{ parsed: ParsedFile; content: string }> = [];
+  for (const fp of filePaths.slice(0, maxInferenceFiles)) {
+    try {
+      const rel = path.relative(secureRoot, fp);
+      const content = await fs.readFile(fp, "utf8");
+      const sizeBuf = Buffer.byteLength(content, "utf8");
+      const parsed = await parseFile(rel, content, sizeBuf);
+      pairs.push({ parsed, content });
+    } catch { /* skip unreadable files */ }
+  }
+
+  const results = inferBatch(pairs, { timeoutMs: 2000 });
+  const md = renderInferenceMarkdown(results);
+  const outPath = path.join(secureRoot, "MEMO_LOG_INFERENCE.md");
+  const tmpPath = `${outPath}.${randomUUID()}.tmp`;
+  try {
+    await fs.writeFile(tmpPath, md, "utf8");
+    await fs.rename(tmpPath, outPath);
+  } catch (error) {
+    await fs.unlink(tmpPath).catch(() => {});
+    throw error;
+  }
+  console.log(`Runtime inference written to: ${outPath}`);
+}
+
+async function runAgentConflictDetection(targetDir: string, quiet: boolean): Promise<void> {
+  const path = await import("node:path");
+  const { runAgentUiWorkflow } = await import("../engine/agentUi.js");
+
+  const absoluteTarget = path.resolve(targetDir);
+  const result = await runAgentUiWorkflow(absoluteTarget);
+
+  if (!quiet) {
+    for (const warning of result.warnings) {
+      console.warn(warning);
+    }
+    if (!result.previousSnapshotFound) {
+      console.log("Agent UI baseline snapshot created. Re-run with --agent-ui after the next scan to detect conflicts.");
+      return;
+    }
+    console.log(`Conflict report written to: ${result.reportPath}`);
+    if (result.report === null) {
+      console.warn("⚠ Conflict comparison skipped. See warnings above and MEMO_LOG_CONFLICTS.md");
+    } else if (result.report.totalConflicts > 0) {
+      console.warn(`⚠ ${result.report.totalConflicts} conflict(s) detected. Review MEMO_LOG_CONFLICTS.md`);
+    } else {
+      console.log("No conflicts detected.");
+    }
+  }
+}
 
 // Entry point for running the CLI
 export const runCli = async (argv?: string[]): Promise<number> => {
