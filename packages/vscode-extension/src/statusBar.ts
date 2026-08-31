@@ -1,8 +1,5 @@
 import * as vscode from "vscode";
-import * as path from "path";
-import * as fs from "fs";
 
-// Shows last scan time, file count, and warnings in VS Code status bar (read-only)
 export class StatusBarManager implements vscode.Disposable {
   private readonly item: vscode.StatusBarItem;
 
@@ -14,19 +11,14 @@ export class StatusBarManager implements vscode.Disposable {
     this.item.show();
   }
 
-  updateFromMemoryFile(): void {
+  async updateFromMemoryFile(): Promise<void> {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) return;
 
-    const jsonPath = path.join(workspaceFolders[0]!.uri.fsPath, "MEMO_LOG.json");
+    const jsonUri = vscode.Uri.joinPath(workspaceFolders[0]!.uri, "MEMO_LOG.json");
     try {
-      if (!fs.existsSync(jsonPath)) {
-        this.item.text = "$(brain) memo-log: not scanned";
-        return;
-      }
-
-      const raw = fs.readFileSync(jsonPath, "utf8");
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      const buf = await vscode.workspace.fs.readFile(jsonUri);
+      const parsed = JSON.parse(new TextDecoder("utf-8").decode(buf)) as Record<string, unknown>;
 
       const generatedAt = typeof parsed["generatedAt"] === "string" ? parsed["generatedAt"] : "";
       const entries = Array.isArray(parsed["entries"]) ? parsed["entries"] : [];
@@ -35,10 +27,10 @@ export class StatusBarManager implements vscode.Disposable {
       const totalFiles = typeof metadata["totalFiles"] === "number" ? metadata["totalFiles"] : entries.length;
 
       const timeLabel = generatedAt ? formatTime(generatedAt) : "unknown";
-      const warnLabel = (warnings as unknown[]).length > 0 ? ` ⚠${(warnings as unknown[]).length}` : "";
+      const warnLabel = warnings.length > 0 ? ` ⚠${warnings.length}` : "";
       this.item.text = `$(brain) memo-log: ${totalFiles} files · ${timeLabel}${warnLabel}`;
     } catch {
-      this.item.text = "$(brain) memo-log: error reading state";
+      this.item.text = "$(brain) memo-log: not scanned";
     }
   }
 

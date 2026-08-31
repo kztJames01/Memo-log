@@ -1,8 +1,6 @@
 import * as vscode from "vscode";
-import * as path from "path";
 import { buildMemoryHtml } from "./securityUtils.js";
 
-// Reads MEMO_LOG.md and MEMO_LOG.json from workspace. Never writes anything.
 export class MemoryPanel implements vscode.Disposable {
   private currentPanel: vscode.WebviewPanel | undefined;
   private disposables: vscode.Disposable[] = [];
@@ -20,9 +18,9 @@ export class MemoryPanel implements vscode.Disposable {
       "AI Memory",
       vscode.ViewColumn.Beside,
       {
-        enableScripts: false, // no scripts; pure read-only HTML
+        enableScripts: false,
         retainContextWhenHidden: true,
-        localResourceRoots: [], // no local resource access
+        localResourceRoots: [],
       }
     );
 
@@ -30,44 +28,36 @@ export class MemoryPanel implements vscode.Disposable {
       this.currentPanel = undefined;
     }, null, this.disposables);
 
-    this.loadContent();
+    void this.loadContent();
   }
 
   refresh(): void {
     if (!this.currentPanel) return;
-    this.loadContent();
+    void this.loadContent();
   }
 
-  private loadContent(): void {
+  private async loadContent(): Promise<void> {
     if (!this.currentPanel) return;
-    const content = this.readMemoryFile();
+    const content = await this.readMemoryFile();
     this.currentPanel.webview.html = buildMemoryHtml(content);
   }
 
-  // Read MEMO_LOG.md using VS Code sandboxed FS API — read-only, no writes
-  private readMemoryFile(): string {
+  private async readMemoryFile(): Promise<string> {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) {
       return "No workspace open.";
     }
 
-    const rootPath = workspaceFolders[0]!.uri.fsPath;
-    const mdPath = path.join(rootPath, "MEMO_LOG.md");
-
+    const mdUri = vscode.Uri.joinPath(workspaceFolders[0]!.uri, "MEMO_LOG.md");
     try {
-      // Use synchronous read for simplicity; file is small
-      const fs = require("fs") as typeof import("fs");
-      if (!fs.existsSync(mdPath)) {
-        return "MEMO_LOG.md not found. Run `memo-log scan .` first.";
-      }
-      const content = fs.readFileSync(mdPath, "utf8");
-      // Guard: reject enormous files to prevent memory issues
+      const buf = await vscode.workspace.fs.readFile(mdUri);
+      const content = new TextDecoder("utf-8").decode(buf);
       if (content.length > 1_000_000) {
         return "MEMO_LOG.md exceeds 1MB display limit. Open file directly.";
       }
       return content;
-    } catch (err) {
-      return `Error reading MEMO_LOG.md: ${String(err)}`;
+    } catch {
+      return "MEMO_LOG.md not found. Run `memo-log scan .` first.";
     }
   }
 

@@ -1,6 +1,4 @@
 import * as vscode from "vscode";
-import * as path from "path";
-import * as fs from "fs";
 import { findNearbyEntries } from "./codelensUtils.js";
 
 interface MemoryEntry {
@@ -18,18 +16,15 @@ interface MemorySnapshot {
   entries: MemoryEntry[];
 }
 
-// Shows [Memory] lens on exported functions/classes; hover shows tech/simple summary.
-// Pre-computes summaries from cached MEMO_LOG.json so hover is <50ms.
 export class MemoryCodeLensProvider implements vscode.CodeLensProvider, vscode.Disposable {
   private cachedSnapshot: MemorySnapshot | undefined;
   private cacheLoadedAt = 0;
-  private readonly cacheTtlMs = 5000; // re-read file at most every 5s
+  private readonly cacheTtlMs = 5000;
   private disposables: vscode.Disposable[] = [];
   private changeEmitter = new vscode.EventEmitter<void>();
   readonly onDidChangeCodeLenses = this.changeEmitter.event;
 
   constructor(private readonly context: vscode.ExtensionContext) {
-    // Watch for MEMO_LOG.json changes and invalidate cache
     const watcher = vscode.workspace.createFileSystemWatcher("**/MEMO_LOG.json");
     watcher.onDidChange(() => {
       this.cachedSnapshot = undefined;
@@ -38,27 +33,26 @@ export class MemoryCodeLensProvider implements vscode.CodeLensProvider, vscode.D
     this.disposables.push(watcher);
   }
 
-  provideCodeLenses(document: vscode.TextDocument): vscode.CodeLens[] {
-    const snapshot = this.getSnapshot();
+  async provideCodeLenses(document: vscode.TextDocument): Promise<vscode.CodeLens[]> {
+    const snapshot = await this.getSnapshot();
     if (!snapshot) return [];
 
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) return [];
 
     const rootPath = workspaceFolders[0]!.uri.fsPath;
-    // normalize file path to match ref format: relative, posix
-    const relFile = path.relative(rootPath, document.uri.fsPath).replace(/\\/g, "/");
+    const relFile = document.uri.fsPath
+      .slice(rootPath.length)
+      .replace(/^[\\/]/, "")
+      .replace(/\\/g, "/");
 
     const lenses: vscode.CodeLens[] = [];
-    const text = document.getText();
-    const lines = text.split("\n");
+    const lines = document.getText().split("\n");
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i] ?? "";
-      // Match export declarations
       if (!isExportLine(line)) continue;
 
-      // Find entries referencing this file near this line
       const nearby = findNearbyEntries(snapshot.entries, relFile, i + 1);
       if (nearby.length === 0) continue;
 
@@ -80,7 +74,7 @@ export class MemoryCodeLensProvider implements vscode.CodeLensProvider, vscode.D
     return lens;
   }
 
-  private getSnapshot(): MemorySnapshot | undefined {
+  private async getSnapshot(): Promise<MemorySnapshot | undefined> {
     const now = Date.now();
     if (this.cachedSnapshot && now - this.cacheLoadedAt < this.cacheTtlMs) {
       return this.cachedSnapshot;
@@ -89,11 +83,10 @@ export class MemoryCodeLensProvider implements vscode.CodeLensProvider, vscode.D
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) return undefined;
 
-    const jsonPath = path.join(workspaceFolders[0]!.uri.fsPath, "MEMO_LOG.json");
+    const jsonUri = vscode.Uri.joinPath(workspaceFolders[0]!.uri, "MEMO_LOG.json");
     try {
-      if (!fs.existsSync(jsonPath)) return undefined;
-      const raw = fs.readFileSync(jsonPath, "utf8");
-      const parsed = JSON.parse(raw) as unknown;
+      const buf = await vscode.workspace.fs.readFile(jsonUri);
+      const parsed = JSON.parse(new TextDecoder("utf-8").decode(buf)) as unknown;
       if (!isMemorySnapshot(parsed)) return undefined;
       this.cachedSnapshot = parsed;
       this.cacheLoadedAt = now;
@@ -111,9 +104,9 @@ export class MemoryCodeLensProvider implements vscode.CodeLensProvider, vscode.D
 
 function isExportLine(line: string): boolean {
   return /^\s*export\s+(default\s+)?(function|class|const|let|var|async\s+function|type|interface|enum)/.test(line)
-    || /^\s*def\s+\w+/.test(line)   // python
-    || /^\s*pub\s+(fn|struct|enum|trait)/.test(line)   // rust
-    || /^\s*func\s+\w+/.test(line);  // go
+    || /^\s*def\s+\w+/.test(line)
+    || /^\s*pub\s+(fn|struct|enum|trait)/.test(line)
+    || /^\s*func\s+\w+/.test(line);
 }
 
 function truncate(s: string, len: number): string {

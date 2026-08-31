@@ -26,6 +26,11 @@
         "command": "memo-log.openMemory",
         "title": "memo-log: Open AI Memory",
         "category": "Memo-log"
+      },
+      {
+        "command": "memo-log.showEntryDetail",
+        "title": "memo-log: Show Memory Entry",
+        "category": "Memo-log"
       }
     ],
     "views": {
