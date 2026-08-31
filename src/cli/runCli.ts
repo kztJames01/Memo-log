@@ -317,6 +317,15 @@ const buildProgram = (): Command => {
       await runAuditCommand(auditOpts);
     });
 
+  program
+    .command("validate")
+    .argument("[file]", "MEMO_LOG.json path to schema-check", "MEMO_LOG.json")
+    .action(async (file: string) => {
+      const { validateMemoryJsonFile } = await import("../engine/validate.js");
+      const snapshot = validateMemoryJsonFile(file);
+      process.stdout.write(`OK schema v${snapshot.version} entries=${snapshot.entries.length}\n`);
+    });
+
   return program;
 };
 

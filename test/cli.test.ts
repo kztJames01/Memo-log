@@ -136,4 +136,22 @@ describe("cli behavior", () => {
     expect(output).toContain("Executive Brief (Non-Technical)");
     expect(output).not.toContain("Engineering Ledger (Technical)");
   });
+
+  it("validate accepts a just-scanned MEMO_LOG.json", async () => {
+    const root = await makeTempDir("memolog-cli-validate-");
+    await runCli(["init", root]);
+    await fs.mkdir(path.join(root, "src"), { recursive: true });
+    await fs.writeFile(path.join(root, "src", "ok.ts"), "export function ping() { return 1; }\n", "utf8");
+    await runCli(["scan", root, "--format", "json"]);
+    const exit = await runCli(["validate", path.join(root, "MEMO_LOG.json")]);
+    expect(exit).toBe(0);
+  });
+
+  it("validate rejects garbage json", async () => {
+    const root = await makeTempDir("memolog-cli-validate-bad-");
+    const bad = path.join(root, "MEMO_LOG.json");
+    await fs.writeFile(bad, "{nope", "utf8");
+    const exit = await runCli(["validate", bad]);
+    expect(exit).not.toBe(0);
+  });
 });
