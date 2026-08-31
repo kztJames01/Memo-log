@@ -92,7 +92,7 @@ jobs:
       - run: npm run build
 
       - name: Run determinism tests (inference + conflicts + audit)
-        run: npx vitest run test/determinism.test.ts test/runtime-inference.test.ts test/conflict-detection.test.ts test/audit.test.ts test/agent-ui-workflow.test.ts test/cli-phase4.test.ts test/phase4-hardening.test.ts
+        run: npx vitest run test/determinism.test.ts test/runtime-inference.test.ts test/conflict-detection.test.ts test/audit.test.ts test/agent-ui-workflow.test.ts test/cli-extended.test.ts test/hardening.test.ts
 
       - name: CLI scan determinism (multi-mode)
         run: |
