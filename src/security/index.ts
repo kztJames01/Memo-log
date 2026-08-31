@@ -17,7 +17,8 @@ export {
   DEFAULT_EXCLUDES,
   DEFAULT_MAX_DEPTH,
   DEFAULT_MAX_FILE_SIZE_BYTES,
-  DEFAULT_TIMEOUT_MS
+  DEFAULT_TIMEOUT_MS,
+  isSensitiveRelativePath
 } from "./types.js";
 export {
   safeReadFile,

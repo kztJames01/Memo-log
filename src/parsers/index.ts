@@ -30,6 +30,14 @@ export function isSafeToParse(filePath: string): boolean {
   }
 
   // block sensitive or generated folders.
+  const base = lowerPath.replace(/\\/g, "/").split("/").pop() ?? "";
+  if (base.startsWith(".env") || base.endsWith(".key") || base.endsWith(".pem")) {
+    return false;
+  }
+  if (base.startsWith("credentials.") || base.startsWith("secrets.")) {
+    return false;
+  }
+
   const dangerousPatterns = [
     "node_modules",
     ".git",

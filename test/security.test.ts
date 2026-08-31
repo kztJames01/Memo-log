@@ -91,4 +91,22 @@ describe("security traversal", () => {
       safeReadFile(filePath, { expectedSize: 1 })
     ).rejects.toThrow("FILE_SIZE_MISMATCH");
   });
+
+  it("skips sensitive files like credentials, secrets, keys, pems", async () => {
+    const root = await makeTempDir("memolog-security-sensitive-");
+    await fs.mkdir(path.join(root, "src"), { recursive: true });
+    await fs.writeFile(path.join(root, "src", "ok.ts"), "export const ok = 1;\n", "utf8");
+    await fs.writeFile(path.join(root, "credentials.ts"), "export const secret = 1;\n", "utf8");
+    await fs.writeFile(path.join(root, "secrets.json"), "{}\n", "utf8");
+    await fs.writeFile(path.join(root, "id_rsa.key"), "nope\n", "utf8");
+    await fs.writeFile(path.join(root, "cert.pem"), "nope\n", "utf8");
+
+    const manifest = await walkDirectory({ rootPath: root });
+    const relativePaths = manifest.entries.map((entry) => entry.relativePath);
+    expect(relativePaths).toContain("src/ok.ts");
+    expect(relativePaths).not.toContain("credentials.ts");
+    expect(relativePaths).not.toContain("secrets.json");
+    expect(relativePaths).not.toContain("id_rsa.key");
+    expect(relativePaths).not.toContain("cert.pem");
+  });
 });

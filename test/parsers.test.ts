@@ -67,6 +67,13 @@ describe("isSafeToParse", () => {
   it("should reject .memo-log directory", () => {
     expect(isSafeToParse("/project/.memo-log/state.json")).toBe(false);
   });
+
+  it("rejects credentials, secrets, keys, pems", () => {
+    expect(isSafeToParse("/project/credentials.ts")).toBe(false);
+    expect(isSafeToParse("/project/secrets.ts")).toBe(false);
+    expect(isSafeToParse("/project/id_rsa.key")).toBe(false);
+    expect(isSafeToParse("/project/cert.pem")).toBe(false);
+  });
 });
 
 describe("computeContentHash", () => {

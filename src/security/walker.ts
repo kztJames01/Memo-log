@@ -13,7 +13,8 @@ import {
   DEFAULT_EXCLUDES,
   DEFAULT_MAX_DEPTH,
   DEFAULT_MAX_FILE_SIZE_BYTES,
-  DEFAULT_TIMEOUT_MS
+  DEFAULT_TIMEOUT_MS,
+  isSensitiveRelativePath
 } from "./types.js";
 import type {
   DirectoryWalkerOptions,
@@ -47,6 +48,9 @@ function toDeterministicWarningString(warning: TraversalWarning): string {
 function matchesDefaultExclude(relativePath: string): boolean {
   const normalized = normalizeRelativePath(relativePath);
   if (normalized === AIMEMORY_CONFIG_FILE || normalized.endsWith(`/${AIMEMORY_CONFIG_FILE}`)) {
+    return true;
+  }
+  if (isSensitiveRelativePath(normalized)) {
     return true;
   }
 

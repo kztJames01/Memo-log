@@ -6,7 +6,7 @@ import { loadCache, saveCache, createEmptyCache, type ProjectCache } from "./cac
 import { AIMEMORY_CONFIG_FILE } from "../types/config.js";
 import { resolveExtractForFile, removeCacheEntry } from "./cachedParse.js";
 import { safeReadFile } from "../security/safeRead.js";
-import { normalizeRelativePath } from "../security/index.js";
+import { normalizeRelativePath, isSensitiveRelativePath } from "../security/index.js";
 import type { LoadedAiMemoryConfig } from "./config.js";
 import type { AstExtract } from "../types/scan.js";
 import type { SignificanceOptions } from "./significance.js";
@@ -104,9 +104,8 @@ export function startWatcher(options: WatcherOptions): WatcherController {
     resolveReady = resolve;
   });
 
-  watcher = watch(resolvedRoot, {
+  const watchOpts: Parameters<typeof watch>[1] = {
     usePolling,
-    interval: usePolling ? 100 : undefined,
     ignored: (filePath: string, stats) => {
       if (stats?.isDirectory() ?? false) return false;
       if (filePath === resolvedRoot) return false;
@@ -114,7 +113,9 @@ export function startWatcher(options: WatcherOptions): WatcherController {
       if (ext === "" || ext.length > 6) return false;
       const rel = path.relative(resolvedRoot, filePath);
       if (rel.startsWith("..")) return true;
-      const segments = rel.replace(/\\/g, "/").split("/");
+      const posixRel = rel.replace(/\\/g, "/");
+      if (isSensitiveRelativePath(posixRel)) return true;
+      const segments = posixRel.split("/");
       for (const seg of segments) {
         if (seg.startsWith(".") && seg !== "..") return true;
       }
@@ -129,7 +130,12 @@ export function startWatcher(options: WatcherOptions): WatcherController {
       stabilityThreshold: 300,
       pollInterval: 100,
     },
-  });
+  };
+  if (usePolling) {
+    watchOpts.interval = 100;
+  }
+
+  watcher = watch(resolvedRoot, watchOpts);
 
   function log(message: string): void {
     if (!options.quiet) {

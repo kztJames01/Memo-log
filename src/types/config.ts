@@ -58,7 +58,7 @@ export type AiMemoryConfigOverrides = z.infer<
 
 export const DEFAULT_AI_MEMORY_CONFIG: AiMemoryConfig = {
   languages: ["ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "pyi", "rs", "go"],
-  exclude: [".git", "node_modules", "dist", "build", ".memo-log"],
+  exclude: [".git", "node_modules", "dist", "build", ".memo-log", ".env*", "*.key", "*.pem", "credentials.*", "secrets.*"],
   output: {
     markdown: "MEMO_LOG.md",
     json: "MEMO_LOG.json",

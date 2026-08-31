@@ -6,6 +6,16 @@ export const DEFAULT_EXCLUDES = Object.freeze([
   ".memo-log"
 ]);
 
+export function isSensitiveRelativePath(relativePath: string): boolean {
+  const base = relativePath.replace(/\\/g, "/").split("/").pop()?.toLowerCase() ?? "";
+  if (!base) return false;
+  if (base.startsWith(".env")) return true;
+  if (base.endsWith(".key") || base.endsWith(".pem")) return true;
+  if (base === "credentials" || base.startsWith("credentials.")) return true;
+  if (base === "secrets" || base.startsWith("secrets.")) return true;
+  return false;
+}
+
 export const DEFAULT_MAX_DEPTH = 64;
 export const DEFAULT_TIMEOUT_MS = 30_000;
 export const DEFAULT_MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024;
