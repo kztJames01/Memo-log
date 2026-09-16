@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { buildMemoryHtml } from "./securityUtils.js";
+import { getMemoryPaths } from "./memoryPaths.js";
 
 export class MemoryPanel implements vscode.Disposable {
   private currentPanel: vscode.WebviewPanel | undefined;
@@ -48,16 +49,18 @@ export class MemoryPanel implements vscode.Disposable {
       return "No workspace open.";
     }
 
-    const mdUri = vscode.Uri.joinPath(workspaceFolders[0]!.uri, "MEMO_LOG.md");
+    const rootUri = workspaceFolders[0]!.uri;
+    const paths = await getMemoryPaths(rootUri);
+    const mdUri = vscode.Uri.joinPath(rootUri, paths.md);
     try {
       const buf = await vscode.workspace.fs.readFile(mdUri);
       const content = new TextDecoder("utf-8").decode(buf);
       if (content.length > 1_000_000) {
-        return "MEMO_LOG.md exceeds 1MB display limit. Open file directly.";
+        return `${paths.md} exceeds 1MB display limit. Open file directly.`;
       }
       return content;
     } catch {
-      return "MEMO_LOG.md not found. Run `memo-log scan .` first.";
+      return `${paths.md} not found. Run \`memo-log scan .\` first.`;
     }
   }
 

@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { getMemoryPaths } from "./memoryPaths.js";
 
 interface MemoryTreeItem {
   label: string;
@@ -25,12 +26,14 @@ export class MemoryTreeProvider implements vscode.TreeDataProvider<MemoryTreeIte
     if (!folders || folders.length === 0) {
       return [{ label: "No workspace open" }];
     }
-    const mdUri = vscode.Uri.joinPath(folders[0]!.uri, "MEMO_LOG.md");
-    const jsonUri = vscode.Uri.joinPath(folders[0]!.uri, "MEMO_LOG.json");
+    const rootUri = folders[0]!.uri;
+    const paths = await getMemoryPaths(rootUri);
+    const mdUri = vscode.Uri.joinPath(rootUri, paths.md);
+    const jsonUri = vscode.Uri.joinPath(rootUri, paths.json);
     try {
       await vscode.workspace.fs.stat(mdUri);
     } catch {
-      return [{ label: "MEMO_LOG.md missing", desc: "run scan" }];
+      return [{ label: `${paths.md} missing`, desc: "run scan" }];
     }
     let extra = "";
     try {

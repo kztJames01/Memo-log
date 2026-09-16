@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { findNearbyEntries } from "./codelensUtils.js";
+import { getMemoryPaths } from "./memoryPaths.js";
 
 interface MemoryEntry {
   id: string;
@@ -25,7 +26,8 @@ export class MemoryCodeLensProvider implements vscode.CodeLensProvider, vscode.D
   readonly onDidChangeCodeLenses = this.changeEmitter.event;
 
   constructor(private readonly context: vscode.ExtensionContext) {
-    const watcher = vscode.workspace.createFileSystemWatcher("**/MEMO_LOG.json");
+    // watch for any json changes that might be our memory file
+    const watcher = vscode.workspace.createFileSystemWatcher("**/*.json");
     watcher.onDidChange(() => {
       this.cachedSnapshot = undefined;
       this.changeEmitter.fire();
@@ -83,7 +85,9 @@ export class MemoryCodeLensProvider implements vscode.CodeLensProvider, vscode.D
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) return undefined;
 
-    const jsonUri = vscode.Uri.joinPath(workspaceFolders[0]!.uri, "MEMO_LOG.json");
+    const rootUri = workspaceFolders[0]!.uri;
+    const paths = await getMemoryPaths(rootUri);
+    const jsonUri = vscode.Uri.joinPath(rootUri, paths.json);
     try {
       const buf = await vscode.workspace.fs.readFile(jsonUri);
       const parsed = JSON.parse(new TextDecoder("utf-8").decode(buf)) as unknown;

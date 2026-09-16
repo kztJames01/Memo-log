@@ -7,12 +7,10 @@ import {
   isAbsolutePath,
 } from "./securityUtils.js";
 
-// executes memo-log CLI via execa (arg array, no shell interpolation)
-// only whitelisted command: npx memo-log scan <path>
-// never uses child_process.exec or shell interpolation
+// tries memo-log on PATH first, falls back to npx
+// never uses shell interpolation
 
 export async function runScan(rootPath: string, statusBar: StatusBarManager): Promise<void> {
-  // Guard: rootPath must be an absolute path inside the workspace
   if (!isAbsolutePath(rootPath)) {
     void vscode.window.showErrorMessage("memo-log: Invalid workspace path.");
     return;
@@ -24,28 +22,46 @@ export async function runScan(rootPath: string, statusBar: StatusBarManager): Pr
   outputChannel.appendLine(`Running memo-log scan on: ${rootPath}`);
   outputChannel.appendLine("---");
 
+  const args = buildScanArgs(rootPath);
+  validateMemoLogArgs(args);
+
+  const envVars = {
+    PATH: process.env["PATH"] ?? "/usr/local/bin:/usr/bin:/bin",
+    HOME: process.env["HOME"] ?? "",
+    NODE_PATH: process.env["NODE_PATH"] ?? "",
+  };
+
   try {
-    // Build arg array — never interpolate rootPath into a shell string
-    const args = buildScanArgs(rootPath);
-    validateMemoLogArgs(args); // hard safety check before exec
+    // try memo-log directly first (installed globally or in PATH)
+    let usedNpx = false;
+    try {
+      const result = await execa("memo-log", args, {
+        cwd: rootPath,
+        shell: false,
+        timeout: 60_000,
+        env: envVars,
+      });
+      outputChannel.appendLine(result.stdout ?? "");
+      if (result.stderr) outputChannel.appendLine(result.stderr);
+    } catch (directErr: unknown) {
+      // if ENOENT means not on PATH, fall back to npx
+      const isNotFound = directErr instanceof Error && "code" in directErr && (directErr as { code: string }).code === "ENOENT";
+      if (!isNotFound) throw directErr;
 
-    const result = await execa("npx", ["memo-log", ...args], {
-      cwd: rootPath,
-      // No shell: true — args are passed as array, never shell-expanded
-      shell: false,
-      timeout: 60_000,
-      // strip env to prevent PATH injection; preserve NODE_PATH for npx
-      env: {
-        PATH: process.env["PATH"] ?? "/usr/local/bin:/usr/bin:/bin",
-        HOME: process.env["HOME"] ?? "",
-        NODE_PATH: process.env["NODE_PATH"] ?? "",
-      },
-    });
+      outputChannel.appendLine("memo-log not on PATH, using npx...");
+      usedNpx = true;
+      const result = await execa("npx", ["memo-log", ...args], {
+        cwd: rootPath,
+        shell: false,
+        timeout: 60_000,
+        env: envVars,
+      });
+      outputChannel.appendLine(result.stdout ?? "");
+      if (result.stderr) outputChannel.appendLine(result.stderr);
+    }
 
-    outputChannel.appendLine(result.stdout ?? "");
-    if (result.stderr) outputChannel.appendLine(result.stderr);
     outputChannel.appendLine("---");
-    outputChannel.appendLine("Scan complete.");
+    outputChannel.appendLine(`Scan complete.${usedNpx ? " (via npx)" : ""}`);
     statusBar.updateFromMemoryFile();
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);

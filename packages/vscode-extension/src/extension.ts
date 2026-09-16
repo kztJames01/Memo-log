@@ -4,11 +4,13 @@ import { MemoryCodeLensProvider } from "./codeLens.js";
 import { StatusBarManager } from "./statusBar.js";
 import { MemoryTreeProvider } from "./memoryTree.js";
 import { runScan } from "./scanCommand.js";
+import { getMemoryPaths, clearPathCache } from "./memoryPaths.js";
 
 let statusBar: StatusBarManager | undefined;
 let codeLensProvider: MemoryCodeLensProvider | undefined;
 let panel: MemoryPanel | undefined;
 let tree: MemoryTreeProvider | undefined;
+let scanDebounce: ReturnType<typeof setTimeout> | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   if (!vscode.workspace.isTrusted) {
@@ -24,6 +26,8 @@ export function activate(context: vscode.ExtensionContext): void {
     ).then(choice => {
       if (choice === "Enable Now") {
         void vscode.workspace.getConfiguration("memo-log").update("enabled", true, vscode.ConfigurationTarget.Workspace);
+        // reload so everything registers properly
+        void vscode.commands.executeCommand("workbench.action.reloadWindow");
       }
     });
     return;
@@ -44,6 +48,7 @@ export function activate(context: vscode.ExtensionContext): void {
     await runScan(rootPath, statusBar!);
     panel?.refresh();
     tree?.refresh();
+    await updateHasMemoryContext();
   });
 
   const openCmd = vscode.commands.registerCommand("memo-log.openMemory", () => {
@@ -70,27 +75,73 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const treeView = vscode.window.registerTreeDataProvider("memo-log.memoryPanel", tree);
 
-  const watcher = vscode.workspace.createFileSystemWatcher("**/MEMO_LOG.{md,json}");
-  watcher.onDidChange(() => {
+  // watch for memory file changes (both default and custom paths)
+  const watcher = vscode.workspace.createFileSystemWatcher("**/{MEMO_LOG,memo_log,*}.{md,json}");
+  const onFileChange = () => {
     panel?.refresh();
     tree?.refresh();
     void statusBar?.updateFromMemoryFile();
+    void updateHasMemoryContext();
+  };
+  watcher.onDidChange(onFileChange);
+  watcher.onDidCreate(onFileChange);
+
+  // watch .memolog.json for config changes
+  const configWatcher = vscode.workspace.createFileSystemWatcher("**/.memolog.json");
+  configWatcher.onDidChange(() => {
+    clearPathCache();
+    onFileChange();
   });
-  watcher.onDidCreate(() => {
-    panel?.refresh();
-    tree?.refresh();
-    void statusBar?.updateFromMemoryFile();
+  configWatcher.onDidCreate(() => {
+    clearPathCache();
+    onFileChange();
   });
 
-  context.subscriptions.push(scanCmd, openCmd, detailCmd, codeLens, treeView, watcher);
+  // scanOnSave — debounced
+  const saveWatcher = vscode.workspace.onDidSaveTextDocument((doc) => {
+    if (!vscode.workspace.isTrusted) return;
+    const cfg = vscode.workspace.getConfiguration("memo-log");
+    if (!cfg.get<boolean>("scanOnSave", false)) return;
+    // don't rescan on saving the memory files themselves
+    const name = doc.fileName;
+    if (name.endsWith("MEMO_LOG.md") || name.endsWith("MEMO_LOG.json")) return;
+
+    if (scanDebounce) clearTimeout(scanDebounce);
+    scanDebounce = setTimeout(async () => {
+      const folders = vscode.workspace.workspaceFolders;
+      if (!folders || folders.length === 0) return;
+      await runScan(folders[0]!.uri.fsPath, statusBar!);
+      panel?.refresh();
+      tree?.refresh();
+    }, 800);
+  });
+
+  context.subscriptions.push(scanCmd, openCmd, detailCmd, codeLens, treeView, watcher, configWatcher, saveWatcher);
   context.subscriptions.push(statusBar, codeLensProvider, tree);
 
   void statusBar.updateFromMemoryFile();
+  void updateHasMemoryContext();
+}
 
-  void vscode.commands.executeCommand("setContext", "memo-log.hasMemory", true);
+// check if memory files actually exist before showing the tree
+async function updateHasMemoryContext(): Promise<void> {
+  const folders = vscode.workspace.workspaceFolders;
+  if (!folders || folders.length === 0) {
+    void vscode.commands.executeCommand("setContext", "memo-log.hasMemory", false);
+    return;
+  }
+  const rootUri = folders[0]!.uri;
+  const paths = await getMemoryPaths(rootUri);
+  try {
+    await vscode.workspace.fs.stat(vscode.Uri.joinPath(rootUri, paths.md));
+    void vscode.commands.executeCommand("setContext", "memo-log.hasMemory", true);
+  } catch {
+    void vscode.commands.executeCommand("setContext", "memo-log.hasMemory", false);
+  }
 }
 
 export function deactivate(): void {
+  if (scanDebounce) clearTimeout(scanDebounce);
   statusBar?.dispose();
   panel?.dispose();
   tree?.dispose();

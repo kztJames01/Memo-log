@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { getMemoryPaths } from "./memoryPaths.js";
 
 export class StatusBarManager implements vscode.Disposable {
   private readonly item: vscode.StatusBarItem;
@@ -15,7 +16,9 @@ export class StatusBarManager implements vscode.Disposable {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) return;
 
-    const jsonUri = vscode.Uri.joinPath(workspaceFolders[0]!.uri, "MEMO_LOG.json");
+    const rootUri = workspaceFolders[0]!.uri;
+    const paths = await getMemoryPaths(rootUri);
+    const jsonUri = vscode.Uri.joinPath(rootUri, paths.json);
     try {
       const buf = await vscode.workspace.fs.readFile(jsonUri);
       const parsed = JSON.parse(new TextDecoder("utf-8").decode(buf)) as Record<string, unknown>;
