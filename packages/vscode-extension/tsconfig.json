@@ -7,7 +7,7 @@
     "noUncheckedIndexedAccess": true,
     "lib": ["ES2022", "DOM"],
     "outDir": "dist",
-    "rootDir": ".",
+    "rootDir": "src",
     "declaration": true,
     "skipLibCheck": true
   },

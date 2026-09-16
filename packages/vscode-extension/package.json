@@ -8,7 +8,18 @@
   },
   "publisher": "kaungzawthant",
   "license": "MIT",
-  "categories": ["Other"],
+  "icon": "media/icon.svg",
+  "categories": ["Other", "Programming Languages"],
+  "keywords": ["memo-log", "memory", "deterministic", "ai", "zero-token"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kztJames01/Memo-log.git",
+    "directory": "packages/vscode-extension"
+  },
+  "bugs": {
+    "url": "https://github.com/kztJames01/Memo-log/issues"
+  },
+  "homepage": "https://github.com/kztJames01/Memo-log#readme",
   "activationEvents": [
     "workspaceContains:MEMO_LOG.md",
     "workspaceContains:MEMO_LOG.json",
@@ -33,6 +44,14 @@
         "category": "Memo-log"
       }
     ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "memo-log.showEntryDetail",
+          "when": "false"
+        }
+      ]
+    },
     "views": {
       "explorer": [
         {
@@ -62,7 +81,9 @@
     "build": "tsc -p tsconfig.json",
     "watch": "tsc -watch -p tsconfig.json",
     "package": "vsce package",
-    "test": "node dist/test/runTests.js"
+    "publish:vsce": "vsce publish",
+    "publish:ovsx": "ovsx publish",
+    "test": "echo \"Extension tests: see root vitest suite\" && exit 0"
   },
   "dependencies": {
     "execa": "^8.0.1"
@@ -70,6 +91,8 @@
   "devDependencies": {
     "@types/vscode": "^1.85.0",
     "@vscode/test-electron": "^2.3.8",
+    "@vscode/vsce": "^2.22.0",
+    "ovsx": "^0.8.3",
     "typescript": "^5.7.2"
   },
   "capabilities": {

@@ -1,0 +1,8 @@
+src/**
+tsconfig.json
+**/*.map
+**/*.d.ts
+.git/**
+.gitignore
+**/*.ts
+!dist/**
