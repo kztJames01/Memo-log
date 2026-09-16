@@ -1,0 +1,44 @@
+name: Publish VS Code Extension
+
+# trigger on tags like vscode-extension-v1.0.0
+on:
+  push:
+    tags:
+      - 'vscode-extension-v*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+
+      - name: Install root deps
+        run: npm ci
+
+      - name: Install extension deps
+        run: cd packages/vscode-extension && npm install
+
+      - name: Build extension
+        run: cd packages/vscode-extension && npm run build
+
+      - name: Verify dist/extension.js
+        run: test -f packages/vscode-extension/dist/extension.js
+
+      # package once, publish the same vsix to both stores
+      - name: Package vsix
+        run: cd packages/vscode-extension && npx vsce package
+      
+      - name: Publish to VS Code Marketplace
+        run: cd packages/vscode-extension && npx vsce publish -p ${{ secrets.VSCE_PAT }}
+      
+      - name: Publish to Open VSX
+        run: cd packages/vscode-extension && npx ovsx publish *.vsix -p ${{ secrets.OVSX_PAT }}
