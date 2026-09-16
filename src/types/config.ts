@@ -56,6 +56,8 @@ export type AiMemoryConfigOverrides = z.infer<
   typeof AiMemoryConfigOverridesSchema
 >;
 
+// V2 FROZEN: extension depends on these default output names (MEMO_LOG.md, MEMO_LOG.json).
+// Do not rename them without a new extension major version or a settings migration.
 export const DEFAULT_AI_MEMORY_CONFIG: AiMemoryConfig = {
   languages: ["ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "pyi", "rs", "go"],
   exclude: [".git", "node_modules", "dist", "build", ".memo-log", ".env*", "*.key", "*.pem", "credentials.*", "secrets.*"],
