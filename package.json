@@ -26,7 +26,9 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "prepare": "npm run build",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "ext:build": "cd packages/vscode-extension && npm install && npm run build",
+    "ext:package": "cd packages/vscode-extension && npm install && npm run build && npx vsce package"
   },
   "keywords": [
     "cli",
