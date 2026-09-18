@@ -154,4 +154,69 @@ describe("cli behavior", () => {
     const exit = await runCli(["validate", bad]);
     expect(exit).not.toBe(0);
   });
+
+  it("scan --help is happy-path only", async () => {
+    const chunks: string[] = [];
+    const orig = process.stdout.write.bind(process.stdout);
+    process.stdout.write = ((chunk: unknown) => {
+      chunks.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      const exit = await runCli(["scan", "--help"]);
+      expect(exit).toBe(0);
+    } finally {
+      process.stdout.write = orig;
+    }
+    const text = chunks.join("");
+    expect(text).toContain("--watch");
+    expect(text).toContain("--help-advanced");
+    expect(text).not.toContain("--infer-runtime");
+    expect(text).not.toContain("--max-depth");
+    expect(text).not.toContain("--include-agent-notes");
+  });
+
+  it("scan --help-advanced shows power-user flags", async () => {
+    const chunks: string[] = [];
+    const orig = process.stdout.write.bind(process.stdout);
+    process.stdout.write = ((chunk: unknown) => {
+      chunks.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      const exit = await runCli(["scan", "--help-advanced"]);
+      expect(exit).toBe(0);
+    } finally {
+      process.stdout.write = orig;
+    }
+    const text = chunks.join("");
+    expect(text).toContain("--out");
+    expect(text).toContain("--filter");
+    expect(text).not.toContain("--infer-runtime");
+  });
+
+  it("scan --help-experimental shows runtime flags", async () => {
+    const chunks: string[] = [];
+    const orig = process.stdout.write.bind(process.stdout);
+    process.stdout.write = ((chunk: unknown) => {
+      chunks.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      const exit = await runCli(["scan", "--help-experimental"]);
+      expect(exit).toBe(0);
+    } finally {
+      process.stdout.write = orig;
+    }
+    const text = chunks.join("");
+    expect(text).toContain("--infer-runtime");
+    expect(text).toContain("--export-context");
+  });
+
+  it("rejects engine knobs as CLI flags", async () => {
+    const root = await makeTempDir("memolog-cli-moved-flag-");
+    await runCli(["init", root]);
+    const exit = await runCli(["scan", root, "--max-depth", "3"]);
+    expect(exit).not.toBe(0);
+  });
 });

@@ -18,6 +18,12 @@ Or use without installing:
 npx memo-log scan ./my-project
 ```
 
+### VS Code / Cursor Extension
+
+Install `kaungzawthant.memo-log-vscode` from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=kaungzawthant.memo-log-vscode) or [Open VSX](https://open-vsx.org/extension/kaungzawthant/memo-log-vscode).
+
+Set `memo-log.enabled` to `true` in workspace settings to activate.
+
 ## CLI
 
 ### `init`
@@ -36,6 +42,8 @@ Creates `.memolog.json` with default settings:
   "exclude": [".git", "node_modules", "dist", "build", ".memo-log"],
   "output": { "markdown": "MEMO_LOG.md", "json": "MEMO_LOG.json" },
   "maxDepth": 20,
+  "timeoutMs": 30000,
+  "maxFileSizeBytes": 2097152,
   "mode": "dual",
   "filter": "logic",
   "trackTypes": false
@@ -44,29 +52,26 @@ Creates `.memolog.json` with default settings:
 
 ### `scan`
 
-Scan a project and generate memory files:
-
 ```bash
-memo-log scan ./my-project [options]
+memo-log scan [dir]
 ```
 
-| Option | Values | Default | Description |
-|--------|--------|---------|-------------|
-| `--mode` | `tech`, `simple`, `dual`, `brief` | `dual` | Output audience mode |
-| `--format` | `md`, `json`, `both` | `both` | Output format |
-| `--out <path>` | file path | — | Override output path (single format only) |
-| `--config <path>` | file path | — | Config file override |
-| `--max-depth <n>` | integer | 20 | Maximum directory traversal depth |
-| `--timeout-ms <n>` | integer | 30000 | Scan timeout in milliseconds |
-| `--max-file-size-bytes <n>` | integer | 2097152 | Skip files larger than this |
-| `--quiet` | — | — | Suppress warning output |
-| `--include-agent-notes` | — | — | Append agent session notes (marked unverified) |
-| `--filter` | `trivial`, `logic`, `all` | `logic` | Export significance filter |
-| `--track-types` | — | — | Include TypeScript type/interface exports |
-| `--watch` | — | — | Watch for file changes, auto-regenerate (first run also needs `--confirm`) |
-| `--confirm` | — | — | One-time opt-in for watch mode (writes `.memo-log/watch.confirmed`) |
-| `--infer-runtime` | — | — | **Opt-in (Phase 4):** static AST-only call graph, API endpoints, data flows. Writes `MEMO_LOG_INFERENCE.md` |
-| `--agent-ui` | — | — | **Opt-in (Phase 4):** compare against previous scan, flag multi-agent export conflicts. Writes `MEMO_LOG_CONFLICTS.md` |
+Defaults: `--mode dual --format both`. Most people never need more than this.
+
+**Happy path** (`memo-log scan --help`):
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `-m, --mode` | `dual` | `dual`, `tech`, `simple`, `brief` |
+| `-f, --format` | `both` | `both`, `md`, `json` |
+| `-w, --watch` | off | Live rescan; prompts once to allow watching |
+| `-q, --quiet` | off | Suppress warnings (CI) |
+
+**Power user** (`memo-log scan --help-advanced`): `-o/--out`, `-c/--config`, `--include-agent-notes`, `--filter`
+
+**Experimental** (`memo-log scan --help-experimental`): `--infer-runtime`, `--agent-ui`, `--export-context` (writes `MEMO_LOG_CONTEXT.json` for LLM paste)
+
+Engine knobs are **not** flags. Put them in `.memolog.json`: `maxDepth`, `timeoutMs`, `maxFileSizeBytes`, `trackTypes`.
 
 **Mode descriptions:**
 
@@ -251,6 +256,8 @@ Create `.memolog.json` in your project root (or run `memo-log init`):
     "json": "MEMO_LOG.json"
   },
   "maxDepth": 20,
+  "timeoutMs": 30000,
+  "maxFileSizeBytes": 2097152,
   "mode": "dual",
   "filter": "logic",
   "trackTypes": false
@@ -264,13 +271,13 @@ Source lives in `src/`; the CLI binary runs from `dist/`. After pulling changes,
 ```bash
 npm install          # runs prepare → npm run build
 npm run build        # if you skipped install or changed src/
-npx memo-log scan . --watch --confirm
+npx memo-log scan . --watch
 ```
 
 Run from TypeScript without building:
 
 ```bash
-npm run dev -- scan . --watch --confirm
+npm run dev -- scan . --watch
 ```
 
 ## Requirements

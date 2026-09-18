@@ -255,6 +255,10 @@ function mergeConfigLayers(
     },
     maxDepth:
       overrideConfig.maxDepth ?? fileConfig.maxDepth ?? defaults.maxDepth,
+    timeoutMs:
+      overrideConfig.timeoutMs ?? fileConfig.timeoutMs ?? defaults.timeoutMs,
+    maxFileSizeBytes:
+      overrideConfig.maxFileSizeBytes ?? fileConfig.maxFileSizeBytes ?? defaults.maxFileSizeBytes,
     mode: overrideConfig.mode ?? fileConfig.mode ?? defaults.mode,
     filter: overrideConfig.filter ?? fileConfig.filter ?? defaults.filter,
     trackTypes: overrideConfig.trackTypes ?? fileConfig.trackTypes ?? defaults.trackTypes,

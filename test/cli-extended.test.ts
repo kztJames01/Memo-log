@@ -79,4 +79,18 @@ describe("cli phase 4 integration", () => {
       console.warn = originalWarn;
     }
   });
+
+  it("scan --export-context writes stripped MEMO_LOG_CONTEXT.json", async () => {
+    const root = await makeTempDir("memolog-cli-export-ctx-");
+    await runCli(["init", root]);
+    await fs.mkdir(path.join(root, "src"), { recursive: true });
+    await fs.writeFile(path.join(root, "src", "util.ts"), "export function clip(s: string) { return s.slice(0, 1); }\n", "utf8");
+    const exit = await runCli(["scan", root, "--export-context", "--format", "both"]);
+    const raw = await fs.readFile(path.join(root, "MEMO_LOG_CONTEXT.json"), "utf8");
+    const parsed = JSON.parse(raw) as { kind: string; entries: Array<{ ref: string; tech: string }> };
+    expect(exit).toBe(0);
+    expect(parsed.kind).toBe("memo-log-export-context");
+    expect(parsed.entries.some((e) => e.tech.includes("clip") || e.ref.includes("util.ts"))).toBe(true);
+    expect(raw).not.toContain("generatedAt");
+  });
 });

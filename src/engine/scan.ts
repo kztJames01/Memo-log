@@ -104,9 +104,9 @@ export async function runScanCommand(
     trackTypes: input.trackTypes ?? config.trackTypes ?? false,
   };
   const scanDetails = await runStructuralScanWithDetails(rootDir, {
-    timeoutMs: input.timeoutMs,
+    timeoutMs: input.timeoutMs ?? config.timeoutMs ?? 30000,
     maxDepth: input.maxDepth ?? config.maxDepth,
-    maxFileSizeBytes: input.maxFileSizeBytes,
+    maxFileSizeBytes: input.maxFileSizeBytes ?? config.maxFileSizeBytes ?? 2097152,
     excludes: runtimeExcludes,
   }, sigOptions);
 

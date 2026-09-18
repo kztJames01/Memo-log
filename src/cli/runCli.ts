@@ -8,9 +8,12 @@ import {
   createDefaultConfig,
   loadEffectiveConfig,
   runScanCommand,
+  CliError,
+  ExitCode,
 } from "../engine/index.js";
 import type { AuditOptions } from "./audit.js";
 import type { ParsedFile } from "../parsers/types.js";
+import { formatScanHelp } from "./scanHelp.js";
 
 // CLI entry point for deterministic project memory generation
 // Supports three main operations: init, commits, and scan
@@ -26,9 +29,6 @@ interface RawScanCommandOptions {
   out?: string;
   format?: ScanFormat;
   config?: string | true;
-  maxDepth?: number | true;
-  timeoutMs?: number | true;
-  maxFileSizeBytes?: number | true;
 }
 
 interface ScanExecutionOptions {
@@ -37,13 +37,9 @@ interface ScanExecutionOptions {
   out?: string | undefined;
   format?: ScanFormat | undefined;
   config?: string | undefined;
-  maxDepth?: number | undefined;
-  timeoutMs?: number | undefined;
-  maxFileSizeBytes?: number | undefined;
   includeAgentNotes?: boolean | undefined;
   quiet?: boolean | undefined;
   filter?: string | undefined;
-  trackTypes?: boolean | undefined;
 }
 
 interface ScanExecutionResult {
@@ -60,24 +56,6 @@ interface CommitCommandOptions {
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;  // Type guard for Record type
-
-//parser for non-negative integers in CLI arguments
-const parseNonNegativeInteger = (value: string): number => {
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isInteger(parsed) || parsed < 0) {
-    throw new InvalidArgumentError(`Expected a non-negative integer, received "${value}".`);
-  }
-  return parsed;
-};
-
-//parser for positive integers in CLI arguments
-const parsePositiveInteger = (value: string): number => {
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new InvalidArgumentError(`Expected a positive integer, received "${value}".`);
-  }
-  return parsed;
-};
 
 const normalizeOptional = <T>(value: T | true | undefined): T | undefined =>
   value === true ? undefined : value;
@@ -190,27 +168,60 @@ const buildProgram = (): Command => {
 
   program
     .command("scan")
-    .argument("<targetDir>", "Directory to scan")
-    .addOption(new Option("--mode <mode>").choices(["tech", "simple", "dual", "brief"]))
-    .option("--out <path>", "Output file path (requires --format md or json)")
-    .addOption(new Option("--format <format>").choices(["md", "json", "both"]).default("both"))
-    .option("--config [path]", "Config file path override")
-    .option("--max-depth [n]", "Maximum traversal depth", parseNonNegativeInteger)
-    .option("--timeout-ms [n]", "Scan timeout in milliseconds", parsePositiveInteger)
-    .option(
-      "--max-file-size-bytes [n]",
-      "Maximum file size in bytes",
-      parsePositiveInteger,
-    )
-    .option("--quiet", "Suppress warnings")
-    .option("--include-agent-notes", "Append agent session notes (marked unverified)")
-    .addOption(new Option("--filter <level>", "Significance filter").choices(["trivial", "logic", "all"]))
-    .option("--track-types", "Include TypeScript type/interface exports")
-    .option("--watch", "Watch for file changes and auto-regenerate memory files")
-    .option("--confirm", "Confirm first-time watch mode for this project")
-    .option("--infer-runtime", "Opt-in: static AST-only runtime inference (call graph, API endpoints, data flows)")
-    .option("--agent-ui", "Opt-in: compare against previous scan and flag multi-agent conflicts")
-    .action(async (targetDir: string, options: RawScanCommandOptions & { quiet?: boolean; includeAgentNotes?: boolean; filter?: string; trackTypes?: boolean; watch?: boolean; confirm?: boolean; inferRuntime?: boolean; agentUi?: boolean }) => {
+    .argument("[targetDir]", "Directory to scan", ".")
+    .description("Generate MEMO_LOG.md and MEMO_LOG.json")
+    .configureHelp({
+      formatHelp: () => formatScanHelp("happy"),
+    })
+    .addOption(new Option("-m, --mode <mode>").choices(["tech", "simple", "dual", "brief"]))
+    .addOption(new Option("-f, --format <format>").choices(["md", "json", "both"]).default("both"))
+    .option("-w, --watch", "Watch files and rescan (prompts once on first run)")
+    .option("-q, --quiet", "Suppress warnings")
+    .option("--help-advanced", "Show power-user flags")
+    .option("--help-experimental", "Show experimental flags")
+    .addOption(new Option("-o, --out <path>", "Override output path (needs --format md or json)").hideHelp())
+    .addOption(new Option("-c, --config [path]", "Config file path override").hideHelp())
+    .addOption(new Option("--include-agent-notes", "Append unverified agent notes").hideHelp())
+    .addOption(new Option("--filter <level>", "Significance filter").choices(["trivial", "logic", "all"]).hideHelp())
+    .addOption(new Option("--infer-runtime", "Static runtime inference").hideHelp())
+    .addOption(new Option("--agent-ui", "Multi-agent conflict report").hideHelp())
+    .addOption(new Option("--export-context", "Write MEMO_LOG_CONTEXT.json for LLM paste").hideHelp())
+    .addOption(new Option("--confirm", "Script-only watch confirm (no TTY)").hideHelp())
+    .addOption(new Option("--max-depth [n]").hideHelp())
+    .addOption(new Option("--timeout-ms [n]").hideHelp())
+    .addOption(new Option("--max-file-size-bytes [n]").hideHelp())
+    .addOption(new Option("--track-types").hideHelp())
+    .action(async (targetDir: string, options: RawScanCommandOptions & {
+      quiet?: boolean;
+      includeAgentNotes?: boolean;
+      filter?: string;
+      watch?: boolean;
+      confirm?: boolean;
+      inferRuntime?: boolean;
+      agentUi?: boolean;
+      exportContext?: boolean;
+      helpAdvanced?: boolean;
+      helpExperimental?: boolean;
+      maxDepth?: unknown;
+      timeoutMs?: unknown;
+      maxFileSizeBytes?: unknown;
+      trackTypes?: unknown;
+    }) => {
+      if (options.helpExperimental) {
+        process.stdout.write(formatScanHelp("experimental"));
+        return;
+      }
+      if (options.helpAdvanced) {
+        process.stdout.write(formatScanHelp("advanced"));
+        return;
+      }
+      if (options.maxDepth !== undefined || options.timeoutMs !== undefined || options.maxFileSizeBytes !== undefined || options.trackTypes) {
+        throw new CliError(
+          "maxDepth, timeoutMs, maxFileSizeBytes, and trackTypes belong in .memolog.json, not CLI flags.",
+          ExitCode.ConfigError,
+        );
+      }
+
       const scanOptions: ScanExecutionOptions = { targetDir };
       if (options.mode !== undefined) {
         scanOptions.mode = options.mode;
@@ -226,45 +237,34 @@ const buildProgram = (): Command => {
       if (config !== undefined) {
         scanOptions.config = config;
       }
-
-      const maxDepth = normalizeOptional(options.maxDepth);
-      if (maxDepth !== undefined) {
-        scanOptions.maxDepth = maxDepth;
-      }
-
-      const timeoutMs = normalizeOptional(options.timeoutMs);
-      if (timeoutMs !== undefined) {
-        scanOptions.timeoutMs = timeoutMs;
-      }
-
-      const maxFileSizeBytes = normalizeOptional(options.maxFileSizeBytes);
-      if (maxFileSizeBytes !== undefined) {
-        scanOptions.maxFileSizeBytes = maxFileSizeBytes;
-      }
       if (options.includeAgentNotes !== undefined) {
         scanOptions.includeAgentNotes = options.includeAgentNotes;
       }
       if (options.quiet !== undefined) {
         scanOptions.quiet = options.quiet;
       }
-
       if (options.filter !== undefined) {
         scanOptions.filter = options.filter;
-      }
-      if (options.trackTypes !== undefined) {
-        scanOptions.trackTypes = Boolean(options.trackTypes);
       }
 
       const effectiveConfig = await loadEffectiveConfig(scanOptions);
       const result: ScanExecutionResult = await runScanCommand({ ...scanOptions, effectiveConfig });
 
-      // Phase 4 opt-ins — only run when explicitly requested
       if (options.inferRuntime) {
         await runRuntimeInference(targetDir);
       }
 
       if (options.agentUi) {
         await runAgentConflictDetection(targetDir, options.quiet ?? false);
+      }
+
+      if (options.exportContext) {
+        const { writeExportContext } = await import("./exportContext.js");
+        const jsonPath = result.jsonPath;
+        const ctxPath = writeExportContext(effectiveConfig.rootDir, jsonPath);
+        if (!options.quiet) {
+          console.log(`Export context: ${ctxPath}`);
+        }
       }
 
       if (!options.quiet) {
@@ -278,13 +278,13 @@ const buildProgram = (): Command => {
       }
 
       if (options.watch) {
-        const { assertWatchAllowed } = await import("../engine/watchConfirm.js");
-        assertWatchAllowed(effectiveConfig.rootDir, options.confirm === true);
+        const { ensureWatchAllowed } = await import("../engine/watchConfirm.js");
+        await ensureWatchAllowed(effectiveConfig.rootDir, options.confirm === true);
 
         const { startWatcher } = await import("../engine/watcher.js");
         const sigOptions = {
-          filter: (scanOptions.filter as "trivial" | "logic" | "all") ?? "logic",
-          trackTypes: scanOptions.trackTypes ?? false,
+          filter: (scanOptions.filter as "trivial" | "logic" | "all") ?? effectiveConfig.config.filter ?? "logic",
+          trackTypes: effectiveConfig.config.trackTypes ?? false,
         };
         const controller = startWatcher({
           rootDir: effectiveConfig.rootDir,

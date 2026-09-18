@@ -29,7 +29,35 @@ export function assertWatchAllowed(rootDir: string, confirmFlag: boolean): void 
     return;
   }
   throw new CliError(
-    "Watch mode requires first-time confirmation. Re-run with: memo-log scan <dir> --watch --confirm",
+    "Watch mode requires one-time confirmation. Run in a terminal, or create .memo-log/watch.confirmed",
     ExitCode.ConfigError,
   );
+}
+
+export async function ensureWatchAllowed(rootDir: string, confirmFlag: boolean): Promise<void> {
+  if (isWatchConfirmed(rootDir)) {
+    return;
+  }
+  if (confirmFlag) {
+    writeWatchConfirmed(rootDir);
+    return;
+  }
+  if (!process.stdin.isTTY) {
+    throw new CliError(
+      "Watch mode requires one-time confirmation to monitor files. Re-run in a terminal (you'll get a y/N prompt), or create .memo-log/watch.confirmed",
+      ExitCode.ConfigError,
+    );
+  }
+  const readline = await import("node:readline/promises");
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  let answer = "";
+  try {
+    answer = await rl.question("Watch mode requires one-time confirmation to monitor files. Allow? (y/N) ");
+  } finally {
+    rl.close();
+  }
+  if (!/^y(es)?$/i.test(answer.trim())) {
+    throw new CliError("Watch mode not confirmed.", ExitCode.ConfigError);
+  }
+  writeWatchConfirmed(rootDir);
 }

@@ -12,7 +12,7 @@ async function tempDir(prefix: string): Promise<string> {
 }
 
 describe("watch confirm", () => {
-  it("requires --confirm on first watch", async () => {
+  it("requires confirmation on first watch without marker", async () => {
     const root = await tempDir("memolog-watch-confirm-");
     expect(isWatchConfirmed(root)).toBe(false);
     expect(() => assertWatchAllowed(root, false)).toThrow(CliError);
