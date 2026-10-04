@@ -1,0 +1,47 @@
+export function formatScanHelp(tier: "happy" | "advanced" | "experimental"): string {
+  const lines = [
+    "Usage: memo-log scan [dir] [options]",
+    "",
+    "Generate deterministic MEMO_LOG.md + MEMO_LOG.json (defaults: --mode dual --format both).",
+    "",
+    "Happy path:",
+    "  -m, --mode <mode>       dual (default) | tech | simple | brief",
+    "  -f, --format <format>   both (default) | md | json",
+    "  -w, --watch             live rescan; prompts once to allow file watching",
+    "  -q, --quiet             suppress warnings (CI)",
+    "  --help-advanced         power-user flags",
+    "  --help-experimental     experimental flags",
+  ];
+
+  if (tier === "advanced" || tier === "experimental") {
+    lines.push(
+      "",
+      "Power user / CI:",
+      "  -o, --out <path>              override a single output file (needs --format md|json)",
+      "  -c, --config <path>           non-default .memolog.json",
+      "  --include-agent-notes         append unverified AI session notes",
+      "  --filter <type>               logic (default) | trivial | all",
+    );
+  }
+
+  if (tier === "experimental") {
+    lines.push(
+      "",
+      "Experimental:",
+      "  --infer-runtime     static call graph / API map → MEMO_LOG_INFERENCE.md",
+      "  --agent-ui          multi-agent conflict report → MEMO_LOG_CONFLICTS.md",
+      "  --export-context    token-light JSON scaffold → MEMO_LOG_CONTEXT.json",
+    );
+  }
+
+  lines.push(
+    "",
+    "Engine limits live in .memolog.json (not flags): maxDepth, timeoutMs, maxFileSizeBytes, trackTypes",
+    "",
+  );
+  return lines.join("\n");
+}
+
+export function printScanHelp(tier: "happy" | "advanced" | "experimental"): void {
+  process.stdout.write(formatScanHelp(tier));
+}

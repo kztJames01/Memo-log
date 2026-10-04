@@ -11,6 +11,10 @@ async function makeTempDir(prefix: string): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), prefix));
 }
 
+function normalizeVolatileTimestamps(content: string): string {
+  return content.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g, "<ts>");
+}
+
 async function seedChaosRepository(root: string): Promise<void> {
   await fs.mkdir(path.join(root, "src", "auth"), { recursive: true });
   await fs.mkdir(path.join(root, "src", "api"), { recursive: true });
@@ -63,7 +67,7 @@ async function seedChaosRepository(root: string): Promise<void> {
 
 describe("anti-hallucination chaos validation", () => {
   it("ensures all generated claims are backed by valid [file:line] references", async () => {
-    const root = await makeTempDir("aimemory-chaos-refs-");
+    const root = await makeTempDir("memolog-chaos-refs-");
     await seedChaosRepository(root);
 
     const effectiveConfig = loadEffectiveConfig({ targetDir: root });
@@ -104,7 +108,7 @@ describe("anti-hallucination chaos validation", () => {
   });
 
   it("stays deterministic on repeated scans of the same chaos repo", async () => {
-    const root = await makeTempDir("aimemory-chaos-determinism-");
+    const root = await makeTempDir("memolog-chaos-determinism-");
     await seedChaosRepository(root);
 
     const effectiveConfig = loadEffectiveConfig({ targetDir: root });
@@ -119,8 +123,8 @@ describe("anti-hallucination chaos validation", () => {
     });
     const firstOutput = await fs.readFile(first.markdownPath!, "utf8");
 
-    await fs.rm(path.join(root, ".ai-memory"), { recursive: true, force: true });
-    await fs.rm(path.join(root, "AI_MEMORY.md"), { force: true });
+    await fs.rm(path.join(root, ".memo-log"), { recursive: true, force: true });
+    await fs.rm(path.join(root, "MEMO_LOG.md"), { force: true });
 
     const second = await runScanCommand({
       targetDir: root,
@@ -132,6 +136,6 @@ describe("anti-hallucination chaos validation", () => {
     });
     const secondOutput = await fs.readFile(second.markdownPath!, "utf8");
 
-    expect(secondOutput).toBe(firstOutput);
+    expect(normalizeVolatileTimestamps(secondOutput)).toBe(normalizeVolatileTimestamps(firstOutput));
   });
 });

@@ -499,9 +499,10 @@ function getParamName(p: unknown): string {
 }
 
 // parser plugin contract implementation.
-export const jsTsParser: ParserPlugin = {
+export const jsTsParser: ParserPlugin<BabelAst> = {
   extensions: SUPPORTED_EXTENSIONS,
   language: "JavaScript/TypeScript",
+  lang: "ts",
 
   parse(content: string, filePath: string, timeoutMs = 500): ParseResult {
     const startTime = Date.now();

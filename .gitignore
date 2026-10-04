@@ -5,4 +5,7 @@ coverage/
 .DS_Store
 *.log
 .test-diff
-.ai-memory
+.memo-log
+MEMO_LOG.md
+MEMO_LOG.json
+.ai-memory/

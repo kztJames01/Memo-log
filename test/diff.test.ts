@@ -35,7 +35,7 @@ describe("diff engine", () => {
     it("should produce consistent hash for same extract", () => {
       const extract: AstExtract = {
         file: "src/utils/helper.ts",
-        exports: [{ name: "formatDate", line: 1, column: 0 }],
+        exports: [{ kind: "function", name: "formatDate", line: 1, column: 0 }],
         imports: ["./constants"],
         signatures: ["function formatDate(date: Date): string"],
       };
@@ -50,14 +50,14 @@ describe("diff engine", () => {
     it("should produce different hash for different exports", () => {
       const extract1: AstExtract = {
         file: "src/utils/helper.ts",
-        exports: [{ name: "formatDate", line: 1, column: 0 }],
+        exports: [{ kind: "function", name: "formatDate", line: 1, column: 0 }],
         imports: [],
         signatures: [],
       };
 
       const extract2: AstExtract = {
         file: "src/utils/helper.ts",
-        exports: [{ name: "formatCurrency", line: 1, column: 0 }],
+        exports: [{ kind: "function", name: "formatCurrency", line: 1, column: 0 }],
         imports: [],
         signatures: [],
       };
@@ -74,7 +74,7 @@ describe("diff engine", () => {
       const extracts: AstExtract[] = [
         {
           file: "src/auth/login.ts",
-          exports: [{ name: "login", line: 1 }],
+          exports: [{ kind: "function", name: "login", line: 1 }],
           imports: [],
           signatures: [],
         },
@@ -92,7 +92,7 @@ describe("diff engine", () => {
       const extracts: AstExtract[] = [
         {
           file: "SRC/Auth/Login.ts",
-          exports: [{ name: "login", line: 1 }],
+          exports: [{ kind: "function", name: "login", line: 1 }],
           imports: [],
           signatures: [],
         },
@@ -109,13 +109,13 @@ describe("diff engine", () => {
       const extracts: AstExtract[] = [
         {
           file: "src/utils/Helper.ts",
-          exports: [{ name: "Helper", line: 1 }],
+          exports: [{ kind: "function", name: "Helper", line: 1 }],
           imports: [],
           signatures: [],
         },
         {
           file: "src/utils/helper.ts",
-          exports: [{ name: "helper", line: 1 }],
+          exports: [{ kind: "function", name: "helper", line: 1 }],
           imports: [],
           signatures: [],
         },
@@ -136,7 +136,7 @@ describe("diff engine", () => {
       const extracts: AstExtract[] = [
         {
           file: "src/new-file.ts",
-          exports: [{ name: "newExport", line: 1 }],
+          exports: [{ kind: "function", name: "newExport", line: 1 }],
           imports: [],
           signatures: [],
         },
@@ -157,6 +157,7 @@ describe("diff engine", () => {
           "src/utils/helper.ts": {
             hash: "oldhash123",
             fingerprint: "oldfingerprint",
+            changedAt: 0,
           },
         },
       };
@@ -164,7 +165,7 @@ describe("diff engine", () => {
       const currentExtracts: AstExtract[] = [
         {
           file: "src/utils/helper.ts",
-          exports: [{ name: "helper", line: 1 }],
+          exports: [{ kind: "function", name: "helper", line: 1 }],
           imports: [],
           signatures: [],
         },
@@ -185,6 +186,7 @@ describe("diff engine", () => {
           "src/old-file.ts": {
             hash: "somehash",
             fingerprint: "somefingerprint",
+            changedAt: 0,
           },
         },
       };
@@ -200,7 +202,7 @@ describe("diff engine", () => {
       const currentExtracts: AstExtract[] = [
         {
           file: "src/utils/helper.ts",
-          exports: [{ name: "helper", line: 1 }],
+          exports: [{ kind: "function", name: "helper", line: 1 }],
           imports: [],
           signatures: [],
         },
@@ -226,13 +228,13 @@ describe("diff engine", () => {
       const extracts: AstExtract[] = [
         {
           file: "src/auth/login.ts",
-          exports: [{ name: "login", line: 1 }],
+          exports: [{ kind: "function", name: "login", line: 1 }],
           imports: [],
           signatures: [],
         },
         {
           file: "src/components/Button.tsx",
-          exports: [{ name: "Button", line: 1 }],
+          exports: [{ kind: "function", name: "Button", line: 1 }],
           imports: [],
           signatures: [],
         },
@@ -249,7 +251,7 @@ describe("diff engine", () => {
       const extracts: AstExtract[] = [
         {
           file: "src/new.ts",
-          exports: [{ name: "newExport", line: 1 }],
+          exports: [{ kind: "function", name: "newExport", line: 1 }],
           imports: [],
           signatures: [],
         },
@@ -266,21 +268,21 @@ describe("diff engine", () => {
         version: 2 as const,
         lastRun: new Date().toISOString(),
         files: {
-          "src/modified.ts": { hash: "old", fingerprint: "old" },
-          "src/removed.ts": { hash: "old", fingerprint: "old" },
+          "src/modified.ts": { hash: "old", fingerprint: "old", changedAt: 0 },
+          "src/removed.ts": { hash: "old", fingerprint: "old", changedAt: 0 },
         },
       };
 
       const currentExtracts: AstExtract[] = [
         {
           file: "src/modified.ts",
-          exports: [{ name: "modified", line: 1 }],
+          exports: [{ kind: "function", name: "modified", line: 1 }],
           imports: [],
           signatures: [],
         },
         {
           file: "src/added.ts",
-          exports: [{ name: "added", line: 1 }],
+          exports: [{ kind: "function", name: "added", line: 1 }],
           imports: [],
           signatures: [],
         },
@@ -298,7 +300,7 @@ describe("diff engine", () => {
       const currentExtracts: AstExtract[] = [
         {
           file: "src/unchanged.ts",
-          exports: [{ name: "unchanged", line: 1 }],
+          exports: [{ kind: "function", name: "unchanged", line: 1 }],
           imports: [],
           signatures: [],
         },
@@ -327,7 +329,7 @@ describe("diff engine", () => {
       const state = buildCurrentState([
         {
           file: "src/test.ts",
-          exports: [{ name: "test", line: 1 }],
+          exports: [{ kind: "function", name: "test", line: 1 }],
           imports: [],
           signatures: [],
         },
@@ -356,7 +358,7 @@ describe("diff engine", () => {
         version: 2 as const,
         lastRun: new Date().toISOString(),
         files: {
-          "src/deleted.ts": { hash: "hash", fingerprint: "fp" },
+          "src/deleted.ts": { hash: "hash", fingerprint: "fp", changedAt: 0 },
         },
       };
 
@@ -389,7 +391,7 @@ describe("diff engine", () => {
       const currentExtracts: AstExtract[] = [
         {
           file: "src/valid.ts",
-          exports: [{ name: "valid", line: 1 }],
+          exports: [{ kind: "function", name: "valid", line: 1 }],
           imports: [],
           signatures: [],
         },
@@ -423,7 +425,7 @@ describe("diff engine", () => {
         version: 2 as const,
         lastRun: new Date().toISOString(),
         files: {
-          "src/Deleted.ts": { hash: "hash", fingerprint: "fp" },
+          "src/Deleted.ts": { hash: "hash", fingerprint: "fp", changedAt: 0 },
         },
       };
 

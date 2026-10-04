@@ -1,6 +1,6 @@
 # memo-log
 
-A **zero-token, static-analysis CLI** that acts as a **post-execution alignment layer** for AI-written code. It scans what actually exists on disk, generates deterministic dual-audience memory (`AI_MEMORY.md` + `AI_MEMORY.json`), and anchors every claim to source references.
+A **zero-token, static-analysis CLI** that acts as a **post-execution alignment layer** for AI-written code. It scans what actually exists on disk, generates deterministic dual-audience memory (`MEMO_LOG.md` + `MEMO_LOG.json`), and anchors every claim to source references.
 
 ## Why?
 
@@ -18,6 +18,12 @@ Or use without installing:
 npx memo-log scan ./my-project
 ```
 
+### VS Code / Cursor Extension
+
+Install `kaungzawthant.memo-log-vscode` from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=kaungzawthant.memo-log-vscode) or [Open VSX](https://open-vsx.org/extension/kaungzawthant/memo-log-vscode).
+
+Set `memo-log.enabled` to `true` in workspace settings to activate.
+
 ## CLI
 
 ### `init`
@@ -28,37 +34,44 @@ Create default config in a project directory:
 memo-log init ./my-project
 ```
 
-Creates `.aimemory.json` with default settings:
+Creates `.memolog.json` with default settings:
 
 ```json
 {
   "languages": ["ts", "tsx", "js", "jsx", "mjs", "cjs"],
-  "exclude": [".git", "node_modules", "dist", "build", ".ai-memory"],
-  "output": { "markdown": "AI_MEMORY.md", "json": "AI_MEMORY.json" },
+  "exclude": [".git", "node_modules", "dist", "build", ".memo-log"],
+  "output": { "markdown": "MEMO_LOG.md", "json": "MEMO_LOG.json" },
   "maxDepth": 20,
-  "mode": "dual"
+  "timeoutMs": 30000,
+  "maxFileSizeBytes": 2097152,
+  "mode": "dual",
+  "filter": "logic",
+  "trackTypes": false
 }
 ```
 
 ### `scan`
 
-Scan a project and generate memory files:
-
 ```bash
-memo-log scan ./my-project [options]
+memo-log scan [dir]
 ```
 
-| Option | Values | Default | Description |
-|--------|--------|---------|-------------|
-| `--mode` | `tech`, `simple`, `dual`, `brief` | `dual` | Output audience mode |
-| `--format` | `md`, `json`, `both` | `both` | Output format |
-| `--out <path>` | file path | — | Override output path (single format only) |
-| `--config <path>` | file path | — | Config file override |
-| `--max-depth <n>` | integer | 20 | Maximum directory traversal depth |
-| `--timeout-ms <n>` | integer | 30000 | Scan timeout in milliseconds |
-| `--max-file-size-bytes <n>` | integer | 2097152 | Skip files larger than this |
-| `--quiet` | — | — | Suppress warning output |
-| `--include-agent-notes` | — | — | Append agent session notes (marked unverified) |
+Defaults: `--mode dual --format both`. Most people never need more than this.
+
+**Happy path** (`memo-log scan --help`):
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `-m, --mode` | `dual` | `dual`, `tech`, `simple`, `brief` |
+| `-f, --format` | `both` | `both`, `md`, `json` |
+| `-w, --watch` | off | Live rescan; prompts once to allow watching |
+| `-q, --quiet` | off | Suppress warnings (CI) |
+
+**Power user** (`memo-log scan --help-advanced`): `-o/--out`, `-c/--config`, `--include-agent-notes`, `--filter`
+
+**Experimental** (`memo-log scan --help-experimental`): `--infer-runtime`, `--agent-ui`, `--export-context` (writes `MEMO_LOG_CONTEXT.json` for LLM paste)
+
+Engine knobs are **not** flags. Put them in `.memolog.json`: `maxDepth`, `timeoutMs`, `maxFileSizeBytes`, `trackTypes`.
 
 **Mode descriptions:**
 
@@ -93,7 +106,7 @@ Commit scope mapping:
 
 ## Output
 
-### `AI_MEMORY.md` (Human-readable)
+### `MEMO_LOG.md` (Human-readable)
 
 ```markdown
 # AI Memory Snapshot
@@ -118,11 +131,11 @@ _Last generated: 1970-01-01T00:00:00.000Z_
 - 🔄 **Modified:** `src/auth/login.ts` [changed]
 ```
 
-### `AI_MEMORY.json` (Machine-readable)
+### `MEMO_LOG.json` (Machine-readable)
 
 Schema-validated (Zod) snapshot with version, entries, warnings, and metadata.
 
-### `.ai-memory/state.json` (Internal state)
+### `.memo-log/state.json` (Internal state)
 
 SHA-256 hashes + structural fingerprints for diff/realignment on subsequent scans.
 
@@ -130,7 +143,7 @@ SHA-256 hashes + structural fingerprints for diff/realignment on subsequent scan
 
 On each `scan`, `memo-log`:
 
-1. Loads previous state from `.ai-memory/state.json`
+1. Loads previous state from `.memo-log/state.json`
 2. Scans current code and computes hashes + fingerprints
 3. Classifies every file as `ADDED`, `MODIFIED`, `REMOVED`, or `UNTOUCHED`
 4. Appends `📅 Recent Changes` section to markdown (when previous state exists)
@@ -154,38 +167,117 @@ On each `scan`, `memo-log`:
 1. **Zero external calls** — No HTTP, no LLM, no cloud API. Pure local execution.
 2. **Reference requirement** — Every summary bullet includes `[file:line]` or `[file:line:col]`. Unverifiable claims are dropped.
 3. **Deterministic templates** — Summaries use rule-based conditionals only. No generative language.
-4. **Schema validation** — `AI_MEMORY.json` validated against Zod schema. Invalid → CLI exits with error.
-5. **Hash-verified state** — `.ai-memory/state.json` uses SHA-256 + structural fingerprints for diff.
+4. **Schema validation** — `MEMO_LOG.json` validated against Zod schema. Invalid → CLI exits with error.
+5. **Hash-verified state** — `.memo-log/state.json` uses SHA-256 + structural fingerprints for diff.
 6. **Fail-fast on ambiguity** — If AST parse fails, falls back to regex. Never guesses intent.
 7. **Open audit trail** — All logic is deterministic. Run `memo-log scan` twice on same code → identical output.
 
+## Phase 3: VS Code Extension (v2)
+
+The `packages/vscode-extension/` directory contains a native VS Code extension that exposes AI Memory directly in the IDE.
+
+**Security model:**
+- Read-only — the extension never writes to your source files
+- Disabled by default in untrusted workspaces (controlled by VS Code's `capabilities.untrustedWorkspaces`)
+- No network calls, no `eval`, no `new Function`, no dynamic imports
+- CLI execution via `execa` with argument arrays (no shell interpolation), whitelisted to `scan` and `audit` only
+- All file reads go through VS Code's sandboxed `workspace.fs` API
+
+**Features:**
+| Feature | Description |
+|---------|-------------|
+| AI Memory sidebar | Reads `MEMO_LOG.md` from workspace root — never writes |
+| Code lens | `[Memory]` label on exported functions/classes; hover shows tech + simple summary |
+| Command palette | `memo-log: Scan Now` — runs CLI, shows output in panel |
+| Status bar | Shows last scan time, file count, warnings |
+
+**Opt-in:** Enable via workspace settings (`memo-log.enabled = true`). Prompts on first activation.
+
+## Phase 4: Runtime Inference + Multi-Agent UI (v2, opt-in)
+
+### `--infer-runtime` flag (static only, no execution)
+
+```bash
+memo-log scan ./my-project --infer-runtime
+```
+
+Performs AST-only analysis (same-file scope) and writes `MEMO_LOG_INFERENCE.md`:
+- **Call graph** — which functions call which, within the same file
+- **API endpoint mapping** — extracts route definitions (`app.get(...)`, `@Get(...)`)
+- **Data flow hints** — tracks input params through variable assignments to output
+- **Safety**: files containing `eval`, `new Function`, or `import()` emit `WARN: DYNAMIC_CODE_SKIPPED` and are skipped entirely. No code is ever executed.
+
+### `--agent-ui` flag (multi-agent conflict detection)
+
+```bash
+memo-log scan ./my-project --agent-ui
+```
+
+Compares current parse results against the previous scan stored in `.memo-log/state.json` and writes `MEMO_LOG_CONFLICTS.md`:
+- **HIGH** — same export name, different signature (coordinate before merge)
+- **MEDIUM** — same export, different line number (likely safe reorder)
+- Includes deterministic resolution suggestions grouped by file
+- Report is SHA-256 hash-signed for audit integrity
+
+### `audit` command
+
+```bash
+memo-log audit [targetDir] [--format json|text] [--out <path>]
+```
+
+Exports a Zod-validated, SHA-256 hash-signed audit trail from `.memo-log/` state files.
+
+```bash
+# Export to stdout
+memo-log audit ./my-project --format json
+
+# Export to file
+memo-log audit ./my-project --format json --out audit.json
+
+# Determinism check
+memo-log audit . --out audit1.json && memo-log audit . --out audit2.json
+diff audit1.json audit2.json  # events array should be identical
+```
+
 ## IDE Compatibility
 
-All AI coding tools (Cursor, Claude Code, GitHub Copilot, Codex, OpenCode) index workspace `.md`/`.json` files. Drop `AI_MEMORY.md` and `AI_MEMORY.json` in your project root — they auto-read it.
-
-| IDE/Agent | Integration |
-|-----------|------------|
-| Cursor / Claude Code / OpenCode | Reads `AI_MEMORY.md`/`.json` natively |
-| GitHub Copilot / VS Code | Same; optional thin extension for Week 2 |
-| Codex | Reads workspace memory files |
-
-No tight coupling. The tool drops structured, version-controlled memory alongside your code.
+All AI coding tools index workspace `.md`/`.json` files. Drop `MEMO_LOG.md` and `MEMO_LOG.json` in your project root — they auto-read it.
 
 ## Configuration
 
-Create `.aimemory.json` in your project root (or run `memo-log init`):
+Create `.memolog.json` in your project root (or run `memo-log init`):
 
 ```json
 {
   "languages": ["ts", "tsx", "js", "jsx"],
-  "exclude": [".git", "node_modules", "dist", "build", ".ai-memory"],
+  "exclude": [".git", "node_modules", "dist", "build", ".memo-log"],
   "output": {
-    "markdown": "AI_MEMORY.md",
-    "json": "AI_MEMORY.json"
+    "markdown": "MEMO_LOG.md",
+    "json": "MEMO_LOG.json"
   },
   "maxDepth": 20,
-  "mode": "dual"
+  "timeoutMs": 30000,
+  "maxFileSizeBytes": 2097152,
+  "mode": "dual",
+  "filter": "logic",
+  "trackTypes": false
 }
+```
+
+## Local development (this repo)
+
+Source lives in `src/`; the CLI binary runs from `dist/`. After pulling changes, rebuild before using `npx memo-log`:
+
+```bash
+npm install          # runs prepare → npm run build
+npm run build        # if you skipped install or changed src/
+npx memo-log scan . --watch
+```
+
+Run from TypeScript without building:
+
+```bash
+npm run dev -- scan . --watch
 ```
 
 ## Requirements

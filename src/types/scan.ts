@@ -1,3 +1,5 @@
+import type { SupportedLang, ExportKind } from "../parsers/types.js";
+
 export interface StructuralScanOptions {
   quiet?: boolean | undefined;
   includeAgentNotes?: boolean | undefined;
@@ -11,10 +13,13 @@ export interface ExportInfo {
   name: string;
   line: number;
   column?: number;
+  kind: ExportKind;
 }
 
 export interface AstExtract {
   file: string;
+  lang?: SupportedLang | undefined;
+  contentHash?: string | undefined;
   exports: ExportInfo[];
   imports: string[];
   signatures: string[];

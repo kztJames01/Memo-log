@@ -1,9 +1,11 @@
 import * as path from "node:path";
 import { z } from "zod";
 
-export const AIMEMORY_CONFIG_FILE = ".aimemory.json";
+export const AIMEMORY_CONFIG_FILE = ".memolog.json";
 
 export const AiMemoryModeSchema = z.enum(["tech", "simple", "dual", "brief"]);
+
+export const FilterLevelSchema = z.enum(["trivial", "logic", "all"]);
 
 const StringListSchema = z.array(z.string().trim().min(1));
 
@@ -28,7 +30,11 @@ export const AiMemoryConfigSchema = z
     exclude: StringListSchema,
     output: AiMemoryOutputSchema,
     maxDepth: z.number().int().nonnegative(),
+    timeoutMs: z.number().int().positive().optional().default(30000),
+    maxFileSizeBytes: z.number().int().positive().optional().default(2097152),
     mode: AiMemoryModeSchema,
+    filter: FilterLevelSchema.optional().default("logic"),
+    trackTypes: z.boolean().optional().default(false),
   })
   .strict();
 
@@ -38,26 +44,37 @@ export const AiMemoryConfigOverridesSchema = z
     exclude: StringListSchema.optional(),
     output: AiMemoryOutputSchema.partial().optional(),
     maxDepth: z.number().int().nonnegative().optional(),
+    timeoutMs: z.number().int().positive().optional(),
+    maxFileSizeBytes: z.number().int().positive().optional(),
     mode: AiMemoryModeSchema.optional(),
+    filter: FilterLevelSchema.optional(),
+    trackTypes: z.boolean().optional(),
   })
   .strict();
 
 export type AiMemoryMode = z.infer<typeof AiMemoryModeSchema>;
+export type FilterLevel = z.infer<typeof FilterLevelSchema>;
 export type AiMemoryOutput = z.infer<typeof AiMemoryOutputSchema>;
 export type AiMemoryConfig = z.infer<typeof AiMemoryConfigSchema>;
 export type AiMemoryConfigOverrides = z.infer<
   typeof AiMemoryConfigOverridesSchema
 >;
 
+// V2 FROZEN: extension depends on these default output names (MEMO_LOG.md, MEMO_LOG.json).
+// Do not rename them without a new extension major version or a settings migration.
 export const DEFAULT_AI_MEMORY_CONFIG: AiMemoryConfig = {
-  languages: ["ts", "tsx", "js", "jsx", "mjs", "cjs"],
-  exclude: [".git", "node_modules", "dist", "build", ".ai-memory"],
+  languages: ["ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "pyi", "rs", "go"],
+  exclude: [".git", "node_modules", "dist", "build", ".memo-log", ".env*", "*.key", "*.pem", "credentials.*", "secrets.*"],
   output: {
-    markdown: "AI_MEMORY.md",
-    json: "AI_MEMORY.json",
+    markdown: "MEMO_LOG.md",
+    json: "MEMO_LOG.json",
   },
   maxDepth: 20,
+  timeoutMs: 30000,
+  maxFileSizeBytes: 2097152,
   mode: "dual",
+  filter: "logic",
+  trackTypes: false,
 };
 
 export function normalizeStringList(
@@ -122,7 +139,11 @@ export function normalizeAiMemoryConfig(
       json: normalizeOutputPath(config.output.json, rootDir),
     },
     maxDepth: config.maxDepth,
+    timeoutMs: config.timeoutMs ?? 30000,
+    maxFileSizeBytes: config.maxFileSizeBytes ?? 2097152,
     mode: config.mode,
+    filter: config.filter ?? "logic",
+    trackTypes: config.trackTypes ?? false,
   };
 }
 

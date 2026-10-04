@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.0]
+## [1.0.0]
 
 ### Added
 - Initial release of ai-memory CLI
@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dual output formats: Markdown and JSON
 - Security-hardened file system operations (TOCTOU protection, path traversal prevention)
 - Atomic file writes for state and cache integrity
-- Configurable exclusion patterns via `.aimemory.json`
+- Configurable exclusion patterns via `.memolog.json`
 - Session notes support for CLAUDE.md and AGENTS.md files
 
 ### Security

@@ -12,6 +12,10 @@ async function makeTempDir(prefix: string): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), prefix));
 }
 
+function normalizeVolatileTimestamps(content: string): string {
+  return content.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g, "<ts>");
+}
+
 async function seedProject(root: string): Promise<void> {
   await fs.mkdir(path.join(root, "src", "auth"), { recursive: true });
   await fs.mkdir(path.join(root, "src", "api"), { recursive: true });
@@ -67,12 +71,12 @@ async function seedProject(root: string): Promise<void> {
 
 describe("e2e: init → scan → update pipeline", () => {
   it("runs init then scan then update with state diff", async () => {
-    const root = await makeTempDir("aimemory-e2e-init-scan-");
+    const root = await makeTempDir("memolog-e2e-init-scan-");
 
     // Step 1: init
     const initExit = await runCli(["init", root]);
     expect(initExit).toBe(0);
-    const configExists = await fs.access(path.join(root, ".aimemory.json")).then(() => true, () => false);
+    const configExists = await fs.access(path.join(root, ".memolog.json")).then(() => true, () => false);
     expect(configExists).toBe(true);
 
     // Step 2: seed files
@@ -116,6 +120,8 @@ describe("e2e: init → scan → update pipeline", () => {
     expect(md).toContain("AI Memory Snapshot");
     expect(md).toContain("Executive Brief");
     expect(md).toContain("Engineering Ledger");
+    expect(md).toContain("Change History");
+    expect(md).toContain("Suggested Commits");
 
     // Step 6: state was written
     const state = loadState(root);
@@ -124,8 +130,8 @@ describe("e2e: init → scan → update pipeline", () => {
     expect(Object.keys(state!.files).length).toBeGreaterThan(0);
 
     // Step 7: second scan (no changes) should produce same output + no diff
-    await fs.rm(path.join(root, "AI_MEMORY.md"), { force: true });
-    await fs.rm(path.join(root, "AI_MEMORY.json"), { force: true });
+    await fs.rm(path.join(root, "MEMO_LOG.md"), { force: true });
+    await fs.rm(path.join(root, "MEMO_LOG.json"), { force: true });
     const second = await runScanCommand({
       targetDir: root,
       mode: "dual",
@@ -155,10 +161,13 @@ describe("e2e: init → scan → update pipeline", () => {
 
     const md3 = await fs.readFile(third.markdownPath!, "utf8");
     expect(md3).toContain("Recent Changes");
+    expect(md3).toContain("Latest Change");
+    expect(md3).toContain("Suggested Commits");
+    expect(md3).toContain("cmd:");
   });
 
   it("scan detects removed files via diff", async () => {
-    const root = await makeTempDir("aimemory-e2e-removed-");
+    const root = await makeTempDir("memolog-e2e-removed-");
     await runCli(["init", root]);
     await seedProject(root);
 
@@ -168,8 +177,8 @@ describe("e2e: init → scan → update pipeline", () => {
     // Remove a file
     await fs.unlink(path.join(root, "src", "components", "Button.tsx"));
 
-    await fs.rm(path.join(root, "AI_MEMORY.md"), { force: true });
-    await fs.rm(path.join(root, "AI_MEMORY.json"), { force: true });
+    await fs.rm(path.join(root, "MEMO_LOG.md"), { force: true });
+    await fs.rm(path.join(root, "MEMO_LOG.json"), { force: true });
 
     const result = await runScanCommand({ targetDir: root, mode: "dual", format: "md", quiet: true, effectiveConfig });
 
@@ -182,7 +191,7 @@ describe("e2e: init → scan → update pipeline", () => {
   });
 
   it("deterministic output on repeated scans of same codebase", async () => {
-    const root = await makeTempDir("aimemory-e2e-determinism-");
+    const root = await makeTempDir("memolog-e2e-determinism-");
     await runCli(["init", root]);
     await seedProject(root);
 
@@ -190,12 +199,12 @@ describe("e2e: init → scan → update pipeline", () => {
     const first = await runScanCommand({ targetDir: root, mode: "tech", format: "md", quiet: true, effectiveConfig });
     const firstMd = await fs.readFile(first.markdownPath!, "utf8");
 
-    await fs.rm(path.join(root, ".ai-memory"), { recursive: true, force: true });
-    await fs.rm(path.join(root, "AI_MEMORY.md"), { force: true });
+    await fs.rm(path.join(root, ".memo-log"), { recursive: true, force: true });
+    await fs.rm(path.join(root, "MEMO_LOG.md"), { force: true });
 
     const second = await runScanCommand({ targetDir: root, mode: "tech", format: "md", quiet: true, effectiveConfig });
     const secondMd = await fs.readFile(second.markdownPath!, "utf8");
 
-    expect(secondMd).toBe(firstMd);
+    expect(normalizeVolatileTimestamps(secondMd)).toBe(normalizeVolatileTimestamps(firstMd));
   });
 });

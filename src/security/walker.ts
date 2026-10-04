@@ -8,11 +8,13 @@ import {
   resolveAndAssertPath,
   resolveSecureRoot
 } from "./pathGuards.js";
+import { AIMEMORY_CONFIG_FILE } from "../types/config.js";
 import {
   DEFAULT_EXCLUDES,
   DEFAULT_MAX_DEPTH,
   DEFAULT_MAX_FILE_SIZE_BYTES,
-  DEFAULT_TIMEOUT_MS
+  DEFAULT_TIMEOUT_MS,
+  isSensitiveRelativePath
 } from "./types.js";
 import type {
   DirectoryWalkerOptions,
@@ -44,11 +46,20 @@ function toDeterministicWarningString(warning: TraversalWarning): string {
 }
 
 function matchesDefaultExclude(relativePath: string): boolean {
-  const segments = normalizeRelativePath(relativePath)
-    .split("/")
-    .filter(Boolean);
+  const normalized = normalizeRelativePath(relativePath);
+  if (normalized === AIMEMORY_CONFIG_FILE || normalized.endsWith(`/${AIMEMORY_CONFIG_FILE}`)) {
+    return true;
+  }
+  if (isSensitiveRelativePath(normalized)) {
+    return true;
+  }
+
+  const segments = normalized.split("/").filter(Boolean);
 
   for (const segment of segments) {
+    if (segment.startsWith(".") && segment !== "..") {
+      return true;
+    }
     if (DEFAULT_EXCLUDES.includes(segment)) {
       return true;
     }

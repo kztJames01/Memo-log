@@ -4,7 +4,14 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 
 import { generateDualOutput, renderBriefMode, renderMarkdown } from "../output/dual-generator.js";
-import { parseFile } from "../parsers/index.js";
+import {
+  loadCache,
+  saveCache,
+  createEmptyCache,
+  updateCalibration,
+  type ProjectCache,
+} from "./cache.js";
+import { resolveExtractForFile } from "./cachedParse.js";
 import { walkDirectory, normalizeRelativePath } from "../security/index.js";
 import { safeReadFile, WarningLimiter, buildManifestSizeMap } from "../security/safeRead.js";
 import type { ScanManifest } from "../security/types.js";
@@ -19,8 +26,16 @@ import {
   writeStateAtomic,
   appendRecentChanges,
   validateNoStaleReferences,
-  getDiffSummary
+  getDiffSummary,
+  appendHistoryEvent,
+  renderChangeHistory,
+  loadHistory,
+  type DiffResult,
 } from "./diff.js";
+import type { SignificanceOptions } from "./significance.js";
+import { CommitGrouper } from "./commit-grouper.js";
+import type { GitChange } from "./git.js";
+import { GitService } from "./git.js";
 
 export type { AstExtract, StructuralScanOptions } from "../types/scan.js";
 
@@ -38,6 +53,8 @@ export interface ScanExecutionOptions {
   maxFileSizeBytes?: number | undefined;
   includeAgentNotes?: boolean | undefined;
   quiet?: boolean | undefined;
+  filter?: string | undefined;
+  trackTypes?: boolean | undefined;
 }
 
 export interface RunScanCommandInput extends ScanExecutionOptions {
@@ -65,7 +82,7 @@ interface AgentNote {
 }
 
 const FILE_BATCH_SIZE = 10;
-const DEFAULT_SCAN_EXCLUDES = ["node_modules", ".git", "dist", "build", "coverage", "AI_MEMORY.*"] as const;
+const DEFAULT_SCAN_EXCLUDES = ["node_modules", ".git", "dist", "build", "coverage", "MEMO_LOG.*"] as const;
 const MAX_AGENT_NOTE_BYTES = 64 * 1024;
 
 export async function runScanCommand(
@@ -82,15 +99,20 @@ export async function runScanCommand(
   const previousState = loadState(rootDir);
 
   const runtimeExcludes = buildRuntimeExcludes(config, input.out);
+  const sigOptions: SignificanceOptions = {
+    filter: (input.filter as "trivial" | "logic" | "all" | undefined) ?? config.filter ?? "logic",
+    trackTypes: input.trackTypes ?? config.trackTypes ?? false,
+  };
   const scanDetails = await runStructuralScanWithDetails(rootDir, {
-    timeoutMs: input.timeoutMs,
+    timeoutMs: input.timeoutMs ?? config.timeoutMs ?? 30000,
     maxDepth: input.maxDepth ?? config.maxDepth,
-    maxFileSizeBytes: input.maxFileSizeBytes,
+    maxFileSizeBytes: input.maxFileSizeBytes ?? config.maxFileSizeBytes ?? 2097152,
     excludes: runtimeExcludes,
-  });
+  }, sigOptions);
 
   const outputMode = mode === "brief" ? "simple" : mode;
-  const snapshot = generateDualOutput(scanDetails.extracts, outputMode, rootDir);
+  const generatedAt = new Date().toISOString();
+  const snapshot = generateDualOutput(scanDetails.extracts, outputMode, rootDir, { generatedAt });
 
   const warningLimiter = new WarningLimiter();
   const mergedWarnings: string[] = [...snapshot.warnings];
@@ -122,9 +144,20 @@ export async function runScanCommand(
     ? appendRecentChanges(markdown, diffResult, rootDir)
     : markdown;
 
+  const history = appendHistoryEvent(rootDir, diffResult, generatedAt);
+  const existingHistory = history.events.length > 0 ? history : loadHistory(rootDir);
+  const historySection = renderChangeHistory(existingHistory);
+  if (historySection.length > 0) {
+    markdownWithChanges = `${markdownWithChanges.trimEnd()}\n\n${historySection}\n`;
+  }
+
   const markdownWithNotes = agentNotes.length > 0
     ? appendSessionNotes(markdownWithChanges, agentNotes)
     : markdownWithChanges;
+
+  const changedGitLike = toGitChanges(diffResult);
+  const dependencyCommitGroups = CommitGrouper.groupChangesByDependency(changedGitLike, scanDetails.extracts);
+  const markdownWithCommitSuggestions = appendCommitSuggestions(markdownWithNotes, dependencyCommitGroups, rootDir);
 
   const explicitOut = resolveOutputOverride(rootDir, input.out);
   const writeMarkdown = format === "md" || format === "both";
@@ -142,7 +175,7 @@ export async function runScanCommand(
 
   if (writeMarkdown) {
     markdownPath = explicitOut?.markdown ?? defaultMarkdownPath;
-    await writeFileAtomic(markdownPath, `${markdownWithNotes}\n`);
+    await writeFileAtomic(markdownPath, `${markdownWithCommitSuggestions}\n`);
   }
   // persist fresh state after outputs are written successfully.
   const currentState = buildCurrentState(scanDetails.extracts);
@@ -172,8 +205,9 @@ export async function runScanCommand(
 export async function runStructuralScan(
   targetDir: string,
   options: StructuralScanOptions = {},
+  sigOptions?: SignificanceOptions,
 ): Promise<AstExtract[]> {
-  const details = await runStructuralScanWithDetails(targetDir, options);
+  const details = await runStructuralScanWithDetails(targetDir, options, sigOptions);
   if (!options.quiet) {
     for (const warning of details.warnings) {
       console.warn(warning);
@@ -185,6 +219,7 @@ export async function runStructuralScan(
 async function runStructuralScanWithDetails(
   targetDir: string,
   options: StructuralScanOptions = {},
+  sigOptions?: SignificanceOptions,
 ): Promise<StructuralScanDetails> {
   const resolvedTargetDir = path.resolve(targetDir);
   // Use async fs.access instead of sync accessSync
@@ -221,6 +256,10 @@ async function runStructuralScanWithDetails(
   const warningLimiter = new WarningLimiter();
   const warnings: string[] = [...manifest.warnings];
   const files = manifest.files;
+  const projectCache: ProjectCache = loadCache(resolvedTargetDir) ?? createEmptyCache();
+  let totalParseMs = 0;
+  let parsedFileCount = 0;
+  const concurrency = projectCache.calibration.concurrency;
 
   for (let i = 0; i < files.length; i += FILE_BATCH_SIZE) {
     const batch = files.slice(i, i + FILE_BATCH_SIZE);
@@ -246,26 +285,28 @@ async function runStructuralScanWithDetails(
       }
 
       try {
-        const parsed = await parseFile(filePath, result.value.content, result.value.size);
-        for (const parseWarning of parsed.warnings) {
+        const relativeFilePath = normalizeRelativePath(path.relative(manifest.rootPath, filePath));
+        const resolved = await resolveExtractForFile(
+          filePath,
+          relativeFilePath,
+          result.value.content,
+          result.value.size,
+          projectCache,
+          sigOptions,
+        );
+        totalParseMs += resolved.parseMs;
+        if (!resolved.fromCache) {
+          parsedFileCount += 1;
+        }
+        for (const parseWarning of resolved.warnings) {
           warningLimiter.emit(warnings, parseWarning);
         }
 
-        if (parsed.exports.length === 0) {
+        if (!resolved.extract) {
           continue;
         }
 
-        const relativeFilePath = normalizeRelativePath(path.relative(manifest.rootPath, filePath));
-        extracts.push({
-          file: relativeFilePath,
-          exports: parsed.exports.map((exp) => ({
-            name: exp.name,
-            line: exp.line,
-            column: exp.column,
-          })),
-          imports: parsed.imports.map((imp) => imp.path),
-          signatures: parsed.signatures.map((sig) => sig.signature),
-        });
+        extracts.push(resolved.extract);
       } catch (error) {
         warningLimiter.emit(
           warnings,
@@ -276,6 +317,11 @@ async function runStructuralScanWithDetails(
   }
 
   warningLimiter.flush(warnings);
+
+  projectCache.lastScan = new Date().toISOString();
+  updateCalibration(projectCache, totalParseMs, parsedFileCount > 0 ? parsedFileCount : files.length, concurrency);
+  saveCache(projectCache, resolvedTargetDir);
+
   return {
     extracts,
     warnings,
@@ -323,7 +369,7 @@ function normalizeMode(mode: ScanMode): ScanMode {
 
 async function writeFileAtomic(filePath: string, content: string): Promise<void> {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
-  const tempFilePath = path.join(path.dirname(filePath), `.ai-memory-${randomUUID()}.tmp`);
+  const tempFilePath = path.join(path.dirname(filePath), `.memo-log-${randomUUID()}.tmp`);
   await fs.writeFile(tempFilePath, content, "utf8");
   await fs.rename(tempFilePath, filePath);
 }
@@ -416,4 +462,83 @@ function validateOutputPathOverride(format: OutputFormat, outPath: string | unde
   if (format === "both") {
     throw new CliError("--out can only be used when --format is md or json.", ExitCode.ConfigError);
   }
+}
+
+function toGitChanges(diffResult: DiffResult): GitChange[] {
+  const changes: GitChange[] = [];
+  for (const entry of diffResult.added) {
+    changes.push({ status: "A", filePath: entry.path });
+  }
+  for (const entry of diffResult.modified) {
+    changes.push({ status: "M", filePath: entry.path });
+  }
+  for (const entry of diffResult.removed) {
+    changes.push({ status: "D", filePath: entry.path });
+  }
+  return changes.sort((a, b) => {
+    const byPath = a.filePath.localeCompare(b.filePath);
+    if (byPath !== 0) return byPath;
+    return a.status.localeCompare(b.status);
+  });
+}
+
+function appendCommitSuggestions(
+  markdown: string,
+  groups: ReturnType<typeof CommitGrouper.groupChangesByDependency>,
+  rootDir: string,
+): string {
+  const lines: string[] = [markdown.trimEnd(), "", "## Suggested Commits", ""];
+  if (groups.length === 0) {
+    lines.push("_No commit suggestions for this scan (no added/modified/removed tracked files)._");
+    return lines.join("\n").trimEnd();
+  }
+
+  const condensedGroups = condenseCommitGroups(groups);
+  const git = new GitService(rootDir);
+  for (const group of condensedGroups) {
+    const message = CommitGrouper.generateMessage(group);
+    const command = git.renderCommitCommand(group.files, message);
+    lines.push(`- \`${message}\``);
+    lines.push(`  files: ${group.files.join(", ")}`);
+    lines.push(`  cmd: \`${command}\``);
+  }
+
+  return lines.join("\n").trimEnd();
+}
+
+function condenseCommitGroups(groups: ReturnType<typeof CommitGrouper.groupChangesByDependency>): typeof groups {
+  const groupedByScopeType = new Map<string, (typeof groups)[number]>();
+
+  for (const group of groups) {
+    const key = `${group.type}:${group.scope}`;
+    const existing = groupedByScopeType.get(key);
+    if (!existing) {
+      groupedByScopeType.set(key, {
+        ...group,
+        files: [...group.files],
+        changes: [...group.changes],
+      });
+      continue;
+    }
+
+    const mergedFiles = [...new Set([...existing.files, ...group.files])].sort((a, b) => a.localeCompare(b));
+    const mergedChanges = [...existing.changes, ...group.changes].sort((a, b) => {
+      const byPath = a.filePath.localeCompare(b.filePath);
+      if (byPath !== 0) return byPath;
+      return a.status.localeCompare(b.status);
+    });
+
+    groupedByScopeType.set(key, {
+      ...existing,
+      files: mergedFiles,
+      changes: mergedChanges,
+    });
+  }
+
+  return [...groupedByScopeType.values()].sort((a, b) => {
+    if (a.files.length !== b.files.length) {
+      return b.files.length - a.files.length;
+    }
+    return a.scope.localeCompare(b.scope);
+  });
 }
