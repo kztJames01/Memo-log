@@ -66,6 +66,10 @@ export class GitService {
     this.cwd = path.resolve(rootDir);
   }
 
+  async isRepository(): Promise<boolean> {
+    return this.isInsideGitRepo();
+  }
+
   async getChangedFiles(): Promise<GitChange[]> {
     const inRepo = await this.isInsideGitRepo();
     if (!inRepo) {

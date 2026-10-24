@@ -193,7 +193,7 @@ export function buildCurrentState(extracts: AstExtract[]): StateV2 {
   };
 }
 
-export function renderRecentChanges(diffResult: DiffResult): string {
+export function renderRecentChanges(diffResult: DiffResult, generatedAt = new Date().toISOString()): string {
   const lines: string[] = [];
   const hasChanges = diffResult.added.length > 0 || diffResult.modified.length > 0 || diffResult.removed.length > 0;
 
@@ -203,7 +203,7 @@ export function renderRecentChanges(diffResult: DiffResult): string {
 
   lines.push("## Recent Changes");
   lines.push("");
-  lines.push(`_Generated: ${new Date().toISOString()}_`);
+  lines.push(`_Generated: ${generatedAt}_`);
   lines.push("");
 
   const sortedCategories = [...diffResult.byCategory.entries()].sort(
@@ -344,9 +344,12 @@ export function renderChangeHistory(history: HistoryLogV1): string {
 export function appendRecentChanges(
   markdown: string,
   diffResult: DiffResult,
-  _targetDir: string
+  _targetDir: string,
+  generatedAt?: string,
 ): string {
-  const recentChanges = renderRecentChanges(diffResult);
+  const recentChanges = generatedAt === undefined
+    ? renderRecentChanges(diffResult)
+    : renderRecentChanges(diffResult, generatedAt);
   if (!recentChanges) {
     return markdown;
   }

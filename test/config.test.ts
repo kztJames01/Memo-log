@@ -11,6 +11,23 @@ async function makeTempDir(prefix: string): Promise<string> {
 }
 
 describe("config validation", () => {
+  it("resolves a relative config path against the scan target, not the shell cwd", async () => {
+    const root = await makeTempDir("memolog-config-rel-");
+    const other = await makeTempDir("memolog-config-cwd-");
+    await fs.writeFile(path.join(root, "custom.json"), JSON.stringify({ mode: "simple" }), "utf8");
+
+    const previous = process.cwd();
+    process.chdir(other);
+    try {
+      const loaded = loadAiMemoryConfig({ targetDir: root, configPath: "custom.json" });
+      expect(loaded.config.mode).toBe("simple");
+      expect(loaded.configPath.startsWith(loaded.rootDir)).toBe(true);
+      expect(path.basename(loaded.configPath)).toBe("custom.json");
+    } finally {
+      process.chdir(previous);
+    }
+  });
+
   it("accepts a valid .memolog.json", async () => {
     const root = await makeTempDir("memolog-config-valid-");
     const configPath = path.join(root, ".memolog.json");

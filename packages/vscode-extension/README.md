@@ -37,7 +37,7 @@ Search `kaungzawthant.memo-log-vscode` in the Extensions tab, or install from [V
 
 ## Requirements
 
-- Node.js >= 18
+- Node.js >= 20
 - `memo-log` CLI (`npm i -g memo-log`) or it falls back to `npx memo-log`
 - VS Code >= 1.85.0
 

@@ -13,7 +13,7 @@ const AuditEventSchema = z.object({
   type: z.enum(["scan", "change", "conflict"]),
   timestamp: z.string().datetime(),
   filePath: z.string().optional(),
-  details: z.record(z.unknown()).optional(),
+  details: z.record(z.string(), z.unknown()).optional(),
 });
 
 const AuditExportSchema = z.object({

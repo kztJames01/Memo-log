@@ -33,11 +33,11 @@ export function buildExportContext(snapshot: unknown): Record<string, unknown> {
   };
 }
 
-export function writeExportContext(targetDir: string, jsonPath?: string): string {
+export function writeExportContext(targetDir: string, jsonPath?: string, snapshot?: unknown): string {
   const root = resolve(targetDir);
-  const memoryJson = jsonPath ?? join(root, "MEMO_LOG.json");
-  const raw = readFileSync(memoryJson, "utf8");
-  const parsed = JSON.parse(raw) as unknown;
+  const parsed = snapshot !== undefined
+    ? snapshot
+    : JSON.parse(readFileSync(jsonPath ?? join(root, "MEMO_LOG.json"), "utf8")) as unknown;
   const payload = buildExportContext(parsed);
   const outPath = join(root, EXPORT_CONTEXT_FILE);
   const tmp = join(dirname(outPath), `.tmp-ctx-${randomUUID()}.json`);

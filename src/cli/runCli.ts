@@ -42,13 +42,6 @@ interface ScanExecutionOptions {
   filter?: string | undefined;
 }
 
-interface ScanExecutionResult {
-  markdownPath?: string | undefined;
-  jsonPath?: string | undefined;
-  warnings: string[];
-  totalFiles: number;
-}
-
 interface CommitCommandOptions {
   apply?: boolean;
   dryRun?: boolean;
@@ -100,6 +93,12 @@ const runCommitsCommand = async (
   const CommitGrouper = await import("../engine/commit-grouper.js").then(m => m.CommitGrouper);
 
   const git = new GitService(targetDir);
+  if (!(await git.isRepository())) {
+    throw new CliError(
+      `Not a git repository: ${targetDir}. The commits command needs a git work tree.`,
+      ExitCode.ConfigError,
+    );
+  }
   const changes = await git.getChangedFiles();
 
   if (changes.length === 0) {
@@ -248,10 +247,10 @@ const buildProgram = (): Command => {
       }
 
       const effectiveConfig = await loadEffectiveConfig(scanOptions);
-      const result: ScanExecutionResult = await runScanCommand({ ...scanOptions, effectiveConfig });
+      const result = await runScanCommand({ ...scanOptions, effectiveConfig });
 
       if (options.inferRuntime) {
-        await runRuntimeInference(targetDir);
+        await runRuntimeInference(targetDir, result.snapshot.entries);
       }
 
       if (options.agentUi) {
@@ -260,8 +259,7 @@ const buildProgram = (): Command => {
 
       if (options.exportContext) {
         const { writeExportContext } = await import("./exportContext.js");
-        const jsonPath = result.jsonPath;
-        const ctxPath = writeExportContext(effectiveConfig.rootDir, jsonPath);
+        const ctxPath = writeExportContext(effectiveConfig.rootDir, result.jsonPath, result.snapshot);
         if (!options.quiet) {
           console.log(`Export context: ${ctxPath}`);
         }
@@ -291,6 +289,7 @@ const buildProgram = (): Command => {
           config: effectiveConfig,
           sigOptions,
           quiet: options.quiet ?? false,
+          includeAgentNotes: options.includeAgentNotes === true,
         });
 
         const shutdown = async () => {
@@ -329,7 +328,10 @@ const buildProgram = (): Command => {
   return program;
 };
 
-async function runRuntimeInference(targetDir: string): Promise<void> {
+async function runRuntimeInference(
+  targetDir: string,
+  entries: ReadonlyArray<{ ref?: unknown }>,
+): Promise<void> {
   const { inferBatch, renderInferenceMarkdown } = await import("../engine/runtimeInference.js");
   const { parseFile } = await import("../parsers/index.js");
   const { assertPathWithinRoot, normalizeRelativePath, resolveSecureRoot } = await import("../security/pathGuards.js");
@@ -339,37 +341,29 @@ async function runRuntimeInference(targetDir: string): Promise<void> {
 
   const absoluteTarget = path.resolve(targetDir);
   const secureRoot = await resolveSecureRoot(absoluteTarget);
-  const jsonPath = path.join(secureRoot, "MEMO_LOG.json");
   const filePaths: string[] = [];
-  try {
-    const raw = await fs.readFile(jsonPath, "utf8");
-    const parsed = JSON.parse(raw) as { entries?: Array<{ ref: string }> };
-    const refs = parsed.entries ?? [];
-    const seen = new Set<string>();
-    for (const entry of refs) {
-      const m = entry.ref.match(/^\[(.+?):\d+/);
-      if (!m?.[1]) continue;
-      let rel = "";
-      try {
-        rel = normalizeRelativePath(m[1]);
-        if (!rel || rel.includes("..")) continue;
-      } catch {
-        continue;
-      }
-      const fp = path.resolve(secureRoot, rel);
-      try {
-        assertPathWithinRoot(secureRoot, fp);
-      } catch {
-        continue;
-      }
-      if (!seen.has(fp)) {
-        seen.add(fp);
-        filePaths.push(fp);
-      }
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    if (typeof entry.ref !== "string") continue;
+    const m = entry.ref.match(/^\[(.+?):\d+/);
+    if (!m?.[1]) continue;
+    let rel = "";
+    try {
+      rel = normalizeRelativePath(m[1]);
+      if (!rel || rel.includes("..")) continue;
+    } catch {
+      continue;
     }
-  } catch {
-    console.warn("WARN: --infer-runtime: could not read MEMO_LOG.json. Run scan first.");
-    return;
+    const fp = path.resolve(secureRoot, rel);
+    try {
+      assertPathWithinRoot(secureRoot, fp);
+    } catch {
+      continue;
+    }
+    if (!seen.has(fp)) {
+      seen.add(fp);
+      filePaths.push(fp);
+    }
   }
 
   const maxInferenceFiles = 50;

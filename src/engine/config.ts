@@ -152,7 +152,8 @@ function resolveConfigPath(
   configFileName: string | undefined
 ): string {
   if (explicitConfigPath) {
-    return path.resolve(process.cwd(), explicitConfigPath);
+    // Relative --config paths belong to the project being scanned, not the shell cwd.
+    return path.resolve(rootDir, explicitConfigPath);
   }
 
   return path.join(rootDir, configFileName ?? AIMEMORY_CONFIG_FILE);

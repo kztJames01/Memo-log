@@ -1,8 +1,9 @@
 import * as vscode from "vscode";
 import * as path from "path";
 
-// reads .memolog.json to get custom output paths, falls back to defaults
-let cachedPaths: { md: string; json: string } | null = null;
+// reads .memolog.json to get custom output paths, falls back to defaults.
+// keyed by workspace root so multi-root windows do not share one cache entry.
+const pathCache = new Map<string, { md: string; json: string }>();
 
 const DEFAULT_MD = "MEMO_LOG.md";
 const DEFAULT_JSON = "MEMO_LOG.json";
@@ -12,7 +13,9 @@ export function getDefaults() {
 }
 
 export async function getMemoryPaths(rootUri: vscode.Uri): Promise<{ md: string; json: string }> {
-  if (cachedPaths) return cachedPaths;
+  const cacheKey = rootUri.toString();
+  const cached = pathCache.get(cacheKey);
+  if (cached) return cached;
 
   try {
     const configUri = vscode.Uri.joinPath(rootUri, ".memolog.json");
@@ -39,16 +42,18 @@ export async function getMemoryPaths(rootUri: vscode.Uri): Promise<{ md: string;
       }
     }
 
-    cachedPaths = { md, json };
-    return cachedPaths;
+    const resolved = { md, json };
+    pathCache.set(cacheKey, resolved);
+    return resolved;
   } catch {
     // no config file or bad json, just use defaults
-    cachedPaths = { md: DEFAULT_MD, json: DEFAULT_JSON };
-    return cachedPaths;
+    const defaults = { md: DEFAULT_MD, json: DEFAULT_JSON };
+    pathCache.set(cacheKey, defaults);
+    return defaults;
   }
 }
 
 // clear cache when config changes
 export function clearPathCache(): void {
-  cachedPaths = null;
+  pathCache.clear();
 }

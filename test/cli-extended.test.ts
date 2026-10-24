@@ -93,4 +93,55 @@ describe("cli phase 4 integration", () => {
     expect(parsed.entries.some((e) => e.tech.includes("clip") || e.ref.includes("util.ts"))).toBe(true);
     expect(raw).not.toContain("generatedAt");
   });
+
+  it("scan --export-context uses the scan snapshot when JSON is not written", async () => {
+    const root = await makeTempDir("memolog-cli-export-stale-");
+    await runCli(["init", root]);
+    await fs.mkdir(path.join(root, "src"), { recursive: true });
+    await fs.writeFile(
+      path.join(root, "MEMO_LOG.json"),
+      JSON.stringify({
+        entries: [{ ref: "[stale.ts:1:0]", tech: "Function/Method: `staleFn`", simple: "stale", category: "utils" }],
+      }),
+      "utf8",
+    );
+    await fs.writeFile(path.join(root, "src", "util.ts"), "export function clip(s: string) { return s.slice(0, 1); }\n", "utf8");
+
+    const exit = await runCli(["scan", root, "--export-context", "--format", "md"]);
+    const raw = await fs.readFile(path.join(root, "MEMO_LOG_CONTEXT.json"), "utf8");
+
+    expect(exit).toBe(0);
+    expect(raw).toContain("clip");
+    expect(raw).not.toContain("staleFn");
+    expect(raw).not.toContain("stale.ts");
+  });
+
+  it("scan --infer-runtime uses the scan snapshot when JSON is not written", async () => {
+    const root = await makeTempDir("memolog-cli-infer-stale-");
+    await runCli(["init", root]);
+    await fs.mkdir(path.join(root, "src"), { recursive: true });
+    await fs.writeFile(
+      path.join(root, "MEMO_LOG.json"),
+      JSON.stringify({
+        entries: [{ ref: "[missing.ts:1:0]", tech: "Function/Method: `missingFn`" }],
+      }),
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(root, "src", "routes.ts"),
+      [
+        "export function getUsers(req, res) { return listUsers(req); }",
+        "export function listUsers(req) { return req.users; }",
+        "app.get('/users', getUsers);",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const exitCode = await runCli(["scan", root, "--infer-runtime", "--format", "md"]);
+    const inferenceMd = await fs.readFile(path.join(root, "MEMO_LOG_INFERENCE.md"), "utf8");
+
+    expect(exitCode).toBe(0);
+    expect(inferenceMd).toContain("API Endpoints");
+    expect(inferenceMd).toContain("/users");
+  });
 });

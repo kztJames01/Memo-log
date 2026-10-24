@@ -1,25 +1,12 @@
 import { watch, type FSWatcher } from "chokidar";
 import path from "node:path";
-import fs from "node:fs/promises";
 import { realpathSync } from "node:fs";
-import { loadCache, saveCache, createEmptyCache, type ProjectCache } from "./cache.js";
-import { AIMEMORY_CONFIG_FILE } from "../types/config.js";
-import { resolveExtractForFile, removeCacheEntry } from "./cachedParse.js";
-import { safeReadFile } from "../security/safeRead.js";
-import { normalizeRelativePath, isSensitiveRelativePath } from "../security/index.js";
+import { runScanCommand } from "./scan.js";
+import { isSensitiveRelativePath } from "../security/index.js";
 import type { LoadedAiMemoryConfig } from "./config.js";
-import type { AstExtract } from "../types/scan.js";
 import type { SignificanceOptions } from "./significance.js";
-import {
-  buildCurrentState,
-  loadState,
-  writeStateAtomic,
-} from "./diff.js";
-import { generateDualOutput, renderMarkdown } from "../output/dual-generator.js";
-import { validateOutput } from "./anti-hallucination.js";
 
 const WATCH_DEBOUNCE_MS = 500;
-const MAX_CONCURRENT_PARSES = 10;
 const CPU_PAUSE_THRESHOLD = 0.8;
 const MEMORY_PAUSE_THRESHOLD_BYTES = 500 * 1024 * 1024;
 
@@ -52,11 +39,27 @@ function isSystemUnderPressure(): boolean {
   return cpu > CPU_PAUSE_THRESHOLD || mem > MEMORY_PAUSE_THRESHOLD_BYTES;
 }
 
+// Directory names must match a path segment or a path prefix.
+// `includes("dist")` also skipped `distribution/`, so those edits never rescanned.
+export function isExcludedRelativePath(posixRel: string, excludes: readonly string[]): boolean {
+  for (const raw of excludes) {
+    const normalized = raw.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+$/, "");
+    if (!normalized) continue;
+    if (posixRel === normalized || posixRel.startsWith(`${normalized}/`)) return true;
+    if (!normalized.includes("/")) {
+      const segments = posixRel.split("/");
+      if (segments.includes(normalized)) return true;
+    }
+  }
+  return false;
+}
+
 export interface WatcherOptions {
   rootDir: string;
   config: LoadedAiMemoryConfig;
   sigOptions?: SignificanceOptions;
   quiet?: boolean;
+  includeAgentNotes?: boolean;
   oneShot?: boolean;
 }
 
@@ -92,8 +95,8 @@ export function startWatcher(options: WatcherOptions): WatcherController {
   let lastEvent: string | null = null;
   let pendingFiles: PendingFile[] = [];
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let scanInFlight = false;
   let watcher: FSWatcher | null = null;
-  const projectCache: ProjectCache = loadCache(resolvedRoot) ?? createEmptyCache();
 
   const extensions = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".pyi", ".rs", ".go"];
   const excludeGlobs = [...defaultExcludes, ...config.config.exclude];
@@ -107,10 +110,10 @@ export function startWatcher(options: WatcherOptions): WatcherController {
   const watchOpts: Parameters<typeof watch>[1] = {
     usePolling,
     ignored: (filePath: string, stats) => {
-      if (stats?.isDirectory() ?? false) return false;
+      // stats is missing until chokidar stats the path. Ignoring those paths
+      // drops whole directories (src has no extension) and the watch never fires.
+      if (!stats || stats.isDirectory()) return false;
       if (filePath === resolvedRoot) return false;
-      const ext = path.extname(filePath).toLowerCase();
-      if (ext === "" || ext.length > 6) return false;
       const rel = path.relative(resolvedRoot, filePath);
       if (rel.startsWith("..")) return true;
       const posixRel = rel.replace(/\\/g, "/");
@@ -119,10 +122,9 @@ export function startWatcher(options: WatcherOptions): WatcherController {
       for (const seg of segments) {
         if (seg.startsWith(".") && seg !== "..") return true;
       }
-      for (const excl of excludeGlobs) {
-        if (rel.includes(excl)) return true;
-      }
-      if (extensions.every((e) => !filePath.endsWith(e))) return true;
+      if (isExcludedRelativePath(posixRel, excludeGlobs)) return true;
+      const ext = path.extname(filePath).toLowerCase();
+      if (!extensions.includes(ext)) return true;
       return false;
     },
     ignoreInitial: true,
@@ -143,138 +145,19 @@ export function startWatcher(options: WatcherOptions): WatcherController {
     }
   }
 
-  async function processFile(filePath: string, eventType: "add" | "change" | "unlink"): Promise<void> {
-    lastEvent = `${eventType}: ${path.relative(resolvedRoot, filePath)}`;
-
-    if (eventType === "unlink") {
-      const previousState = loadState(resolvedRoot);
-      if (!previousState) return;
-      const normalized = filePath.replace(/\\/g, "/");
-      const relPath = path.relative(resolvedRoot, filePath).replace(/\\/g, "/");
-      if (previousState.files[normalized] || previousState.files[relPath]) {
-        delete previousState.files[normalized];
-        delete previousState.files[relPath];
-        writeStateAtomic(previousState, resolvedRoot);
-        removeCacheEntry(projectCache, relPath);
-        saveCache(projectCache, resolvedRoot);
-        log(`File removed: ${relPath}`);
-        await rewriteOutputs(resolvedRoot, config);
-      }
-      return;
-    }
-
-    let content: string;
-    let fileSize: number;
-    try {
-      const result = await safeReadFile(filePath);
-      content = result.content;
-      fileSize = result.size;
-    } catch (err) {
-      log(`WARN: Failed to read ${filePath}: ${err instanceof Error ? err.message : String(err)}`);
-      return;
-    }
-
-    const previousState = loadState(resolvedRoot);
-    const relPath = normalizeRelativePath(path.relative(resolvedRoot, filePath));
-
-    const resolved = await resolveExtractForFile(
-      filePath,
-      relPath,
-      content,
-      fileSize,
-      projectCache,
-      sigOptions,
-    );
-
-    if (!resolved.extract) {
-      removeCacheEntry(projectCache, relPath);
-      saveCache(projectCache, resolvedRoot);
-      return;
-    }
-
-    const extract = resolved.extract;
-
-    const currentExtracts: AstExtract[] = [extract];
-
-    const newState = buildCurrentState(currentExtracts);
-
-    if (previousState) {
-      for (const [key, val] of Object.entries(previousState.files)) {
-        if (relPath !== key && relPath !== normalizeRelativePath(key)) {
-          newState.files[key] = val;
-        }
-      }
-    }
-
-    writeStateAtomic(newState, resolvedRoot);
-    projectCache.lastScan = new Date().toISOString();
-    saveCache(projectCache, resolvedRoot);
-    const cacheNote = resolved.fromCache ? " (cache hit)" : "";
-    log(`File ${eventType === "add" ? "added" : "changed"}: ${relPath}${cacheNote}`);
-    await rewriteOutputs(resolvedRoot, config);
-  }
-
-  async function rewriteOutputs(root: string, cfg: LoadedAiMemoryConfig): Promise<void> {
-    const state = loadState(root);
-
-    const allExtracts: AstExtract[] = [];
-    if (state) {
-      for (const [filePath] of Object.entries(state.files)) {
-        const base = path.basename(filePath);
-        if (base.startsWith(".") || base === AIMEMORY_CONFIG_FILE) continue;
-        const ext = path.extname(filePath).toLowerCase();
-        if (!extensions.some((e) => ext === e)) continue;
-        const absolutePath = path.resolve(root, filePath);
-        let content: string;
-        let fileSize: number;
-        try {
-          const result = await safeReadFile(absolutePath);
-          content = result.content;
-          fileSize = result.size;
-        } catch {
-          continue;
-        }
-
-        try {
-          const resolved = await resolveExtractForFile(
-            absolutePath,
-            filePath,
-            content,
-            fileSize,
-            projectCache,
-            sigOptions,
-          );
-          if (!resolved.extract) continue;
-          allExtracts.push(resolved.extract);
-        } catch {
-          continue;
-        }
-      }
-    }
-
-    const snapshot = generateDualOutput(allExtracts, "dual", root, { generatedAt: new Date().toISOString() });
-    const validatedSnapshot = validateOutput(snapshot, root);
-
-    const markdown = renderMarkdown(validatedSnapshot, "dual");
-
-    const defaultMarkdownPath = path.resolve(root, cfg.config.output.markdown);
-    const defaultJsonPath = path.resolve(root, cfg.config.output.json);
-
-    try {
-      await writeFileAtomic(defaultJsonPath, `${JSON.stringify(validatedSnapshot, null, 2)}\n`);
-      await writeFileAtomic(defaultMarkdownPath, `${markdown}\n`);
-      projectCache.lastScan = new Date().toISOString();
-      saveCache(projectCache, root);
-    } catch (err) {
-      log(`WARN: Failed to write output: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
-
-  async function writeFileAtomic(filePath: string, content: string): Promise<void> {
-    await fs.mkdir(path.dirname(filePath), { recursive: true });
-    const tempFilePath = path.join(path.dirname(filePath), `.memo-log-tmp-${Date.now()}.tmp`);
-    await fs.writeFile(tempFilePath, content, "utf8");
-    await fs.rename(tempFilePath, filePath);
+  async function rescan(): Promise<void> {
+    const input = {
+      targetDir: resolvedRoot,
+      format: "both" as const,
+      effectiveConfig: config,
+      quiet: options.quiet ?? false,
+      includeAgentNotes: options.includeAgentNotes === true,
+      ...(sigOptions
+        ? { filter: sigOptions.filter, trackTypes: sigOptions.trackTypes }
+        : {}),
+    };
+    const result = await runScanCommand(input);
+    log(`Rescanned ${result.totalFiles} files.`);
   }
 
   function flushPending(): void {
@@ -282,7 +165,7 @@ export function startWatcher(options: WatcherOptions): WatcherController {
 
     if (isSystemUnderPressure()) {
       isPaused = true;
-      pauseReason = `CPU: ${(getProcessCpuFraction() * 100).toFixed(0)}%, Mem: ${(getMemoryUsageBytes() / (1024*1024)).toFixed(0)}MB`;
+      pauseReason = `CPU: ${(getProcessCpuFraction() * 100).toFixed(0)}%, Mem: ${(getMemoryUsageBytes() / (1024 * 1024)).toFixed(0)}MB`;
       log(`PAUSED: System under pressure (${pauseReason}). Will resume when resources free.`);
       debounceTimer = setTimeout(flushPending, 2000);
       return;
@@ -296,30 +179,30 @@ export function startWatcher(options: WatcherOptions): WatcherController {
 
     if (pendingFiles.length === 0) return;
 
-    const deduplicated = new Map<string, PendingFile>();
-    for (const pf of pendingFiles) {
-      const key = pf.filePath;
-      const existing = deduplicated.get(key);
-      if (!existing || pf.eventType === "unlink") {
-        deduplicated.set(key, pf);
-      }
+    if (scanInFlight) {
+      debounceTimer = setTimeout(flushPending, WATCH_DEBOUNCE_MS);
+      return;
     }
+
+    const batch = pendingFiles;
     pendingFiles = [];
+    const last = batch[batch.length - 1];
+    if (last) {
+      lastEvent = `${last.eventType}: ${path.relative(resolvedRoot, last.filePath)}`;
+    }
 
-    const batch = [...deduplicated.values()].slice(0, MAX_CONCURRENT_PARSES);
-
-    (async () => {
-      for (const pf of batch) {
-        try {
-          await processFile(pf.filePath, pf.eventType);
-        } catch (err) {
-          log(`WARN: Failed to process ${pf.filePath}: ${err instanceof Error ? err.message : String(err)}`);
+    scanInFlight = true;
+    void (async () => {
+      try {
+        await rescan();
+      } catch (err) {
+        log(`WARN: Rescan failed: ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        scanInFlight = false;
+        sampleProcessCpuBaseline();
+        if (pendingFiles.length > 0 && debounceTimer === null) {
+          debounceTimer = setTimeout(flushPending, WATCH_DEBOUNCE_MS);
         }
-      }
-      sampleProcessCpuBaseline();
-
-      if (isPaused) {
-        setTimeout(flushPending, 2000);
       }
     })();
   }
@@ -332,8 +215,8 @@ export function startWatcher(options: WatcherOptions): WatcherController {
       clearTimeout(debounceTimer);
     }
 
-    if (isPaused) {
-      debounceTimer = setTimeout(flushPending, 2000);
+    if (isPaused || scanInFlight) {
+      debounceTimer = setTimeout(flushPending, scanInFlight ? WATCH_DEBOUNCE_MS : 2000);
     } else {
       debounceTimer = setTimeout(flushPending, WATCH_DEBOUNCE_MS);
     }
@@ -369,6 +252,7 @@ export function startWatcher(options: WatcherOptions): WatcherController {
       isWatching = false;
       if (debounceTimer !== null) {
         clearTimeout(debounceTimer);
+        debounceTimer = null;
       }
       if (watcher !== null) {
         await watcher.close();
