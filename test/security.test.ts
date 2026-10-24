@@ -82,6 +82,17 @@ describe("security traversal", () => {
     ).toBe(true);
   });
 
+  it("rejects a symlink that escapes the scan root at read time", async () => {
+    const root = await makeTempDir("memolog-security-read-link-");
+    const outside = await makeTempDir("memolog-security-read-outside-");
+    const outsideFile = path.join(outside, "secret.ts");
+    await fs.writeFile(outsideFile, "export const secret = true;\n", "utf8");
+    const linkPath = path.join(root, "leak.ts");
+    await fs.symlink(outsideFile, linkPath);
+
+    await expect(safeReadFile(linkPath, { rootPath: root })).rejects.toThrow("SYMLINK_ESCAPE");
+  });
+
   it("fails safeReadFile when discovered size does not match read-time size", async () => {
     const root = await makeTempDir("memolog-security-toc-");
     const filePath = path.join(root, "module.ts");

@@ -13,7 +13,10 @@ jobs:
     
     strategy:
       matrix:
-        node-version: [18.x, 20.x, 22.x]
+        # Node 18 is EOL (2025-04-30) and cannot start Vitest 4: rolldown imports
+        # util.styleText, which Node 18 does not export. Vitest 3 runs there but
+        # pulls high/critical advisories, so the matrix stays on 20 and 22.
+        node-version: [20.x, 22.x]
     
     steps:
       - uses: actions/checkout@v4

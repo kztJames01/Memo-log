@@ -16,7 +16,7 @@ import { walkDirectory, normalizeRelativePath } from "../security/index.js";
 import { safeReadFile, WarningLimiter, buildManifestSizeMap } from "../security/safeRead.js";
 import type { ScanManifest } from "../security/types.js";
 import type { LoadedAiMemoryConfig } from "./config.js";
-import { validateOutput } from "./anti-hallucination.js";
+import { validateOutput, type MemorySnapshot } from "./anti-hallucination.js";
 import { CliError, ExitCode } from "./errors.js";
 import type { AstExtract, StructuralScanOptions } from "../types/scan.js";
 import {
@@ -67,6 +67,7 @@ export interface RunScanCommandResult {
   warnings: string[];
   totalFiles: number;
   diffSummary?: string | undefined;
+  snapshot: MemorySnapshot;
 }
 
 interface StructuralScanDetails {
@@ -141,7 +142,7 @@ export async function runScanCommand(
     : renderMarkdown(validatedSnapshot, outputMode);
 
   let markdownWithChanges = previousState !== null
-    ? appendRecentChanges(markdown, diffResult, rootDir)
+    ? appendRecentChanges(markdown, diffResult, rootDir, generatedAt)
     : markdown;
 
   const history = appendHistoryEvent(rootDir, diffResult, generatedAt);
@@ -199,6 +200,7 @@ export async function runScanCommand(
     warnings: validatedSnapshot.warnings,
     totalFiles: scanDetails.manifest.files.length,
     diffSummary: previousState !== null ? getDiffSummary(diffResult) : undefined,
+    snapshot: validatedSnapshot,
   };
 }
 // public scan helper used by cli and tests.
@@ -266,7 +268,10 @@ async function runStructuralScanWithDetails(
     const results = await Promise.allSettled(
       batch.map(async (filePath) => {
         const expectedSize = sizeMap.get(filePath);
-        const { content, size } = await safeReadFile(filePath, { expectedSize });
+        const { content, size } = await safeReadFile(filePath, {
+          expectedSize,
+          rootPath: manifest.rootPath,
+        });
         return { filePath, content, size };
       }),
     );

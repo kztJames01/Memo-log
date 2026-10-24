@@ -19,6 +19,12 @@ async function git(cwd: string, args: string[]): Promise<void> {
 }
 
 describe("cli commits command", () => {
+  it("fails when the target is not a git repository", async () => {
+    const root = await makeTempDir("memolog-cli-commits-nogit-");
+    const exitCode = await runCli(["commits", root]);
+    expect(exitCode).toBe(2);
+  });
+
   it("prints deterministic grouped commit suggestions in dry-run mode", async () => {
     const root = await makeTempDir("memolog-cli-commits-");
 

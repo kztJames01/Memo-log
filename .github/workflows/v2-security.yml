@@ -64,7 +64,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node: [18, 20, 22]
+        # Node 18 cannot run Vitest 4 (see ci.yml). Keep 20 and 22.
+        node: [20, 22]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

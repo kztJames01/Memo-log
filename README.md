@@ -282,7 +282,7 @@ npm run dev -- scan . --watch
 
 ## Requirements
 
-- Node.js >= 18.0.0
+- Node.js >= 20.0.0
 - Git (for `commits` command only)
 
 ## License

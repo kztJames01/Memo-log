@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import * as path from "path";
 import { findNearbyEntries } from "./codelensUtils.js";
 import { getMemoryPaths } from "./memoryPaths.js";
 
@@ -18,8 +19,7 @@ interface MemorySnapshot {
 }
 
 export class MemoryCodeLensProvider implements vscode.CodeLensProvider, vscode.Disposable {
-  private cachedSnapshot: MemorySnapshot | undefined;
-  private cacheLoadedAt = 0;
+  private readonly snapshots = new Map<string, { snapshot: MemorySnapshot; loadedAt: number }>();
   private readonly cacheTtlMs = 5000;
   private disposables: vscode.Disposable[] = [];
   private changeEmitter = new vscode.EventEmitter<void>();
@@ -29,24 +29,20 @@ export class MemoryCodeLensProvider implements vscode.CodeLensProvider, vscode.D
     // watch for any json changes that might be our memory file
     const watcher = vscode.workspace.createFileSystemWatcher("**/*.json");
     watcher.onDidChange(() => {
-      this.cachedSnapshot = undefined;
+      this.snapshots.clear();
       this.changeEmitter.fire();
     });
     this.disposables.push(watcher);
   }
 
   async provideCodeLenses(document: vscode.TextDocument): Promise<vscode.CodeLens[]> {
-    const snapshot = await this.getSnapshot();
+    const folder = vscode.workspace.getWorkspaceFolder(document.uri);
+    if (!folder) return [];
+
+    const snapshot = await this.getSnapshot(folder.uri);
     if (!snapshot) return [];
 
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    if (!workspaceFolders || workspaceFolders.length === 0) return [];
-
-    const rootPath = workspaceFolders[0]!.uri.fsPath;
-    const relFile = document.uri.fsPath
-      .slice(rootPath.length)
-      .replace(/^[\\/]/, "")
-      .replace(/\\/g, "/");
+    const relFile = path.relative(folder.uri.fsPath, document.uri.fsPath).split(path.sep).join("/");
 
     const lenses: vscode.CodeLens[] = [];
     const lines = document.getText().split("\n");
@@ -76,25 +72,22 @@ export class MemoryCodeLensProvider implements vscode.CodeLensProvider, vscode.D
     return lens;
   }
 
-  private async getSnapshot(): Promise<MemorySnapshot | undefined> {
+  private async getSnapshot(rootUri: vscode.Uri): Promise<MemorySnapshot | undefined> {
+    const key = rootUri.toString();
     const now = Date.now();
-    if (this.cachedSnapshot && now - this.cacheLoadedAt < this.cacheTtlMs) {
-      return this.cachedSnapshot;
+    const cached = this.snapshots.get(key);
+    if (cached && now - cached.loadedAt < this.cacheTtlMs) {
+      return cached.snapshot;
     }
 
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    if (!workspaceFolders || workspaceFolders.length === 0) return undefined;
-
-    const rootUri = workspaceFolders[0]!.uri;
     const paths = await getMemoryPaths(rootUri);
     const jsonUri = vscode.Uri.joinPath(rootUri, paths.json);
     try {
       const buf = await vscode.workspace.fs.readFile(jsonUri);
       const parsed = JSON.parse(new TextDecoder("utf-8").decode(buf)) as unknown;
       if (!isMemorySnapshot(parsed)) return undefined;
-      this.cachedSnapshot = parsed;
-      this.cacheLoadedAt = now;
-      return this.cachedSnapshot;
+      this.snapshots.set(key, { snapshot: parsed, loadedAt: now });
+      return parsed;
     } catch {
       return undefined;
     }

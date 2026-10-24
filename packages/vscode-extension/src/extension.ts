@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import * as path from "path";
 import { MemoryPanel } from "./readOnlyProvider.js";
 import { MemoryCodeLensProvider } from "./codeLens.js";
 import { StatusBarManager } from "./statusBar.js";
@@ -44,7 +45,9 @@ export function activate(context: vscode.ExtensionContext): void {
       void vscode.window.showErrorMessage("memo-log: No workspace folder open.");
       return;
     }
-    const rootPath = workspaceFolders[0]!.uri.fsPath;
+    const activeUri = vscode.window.activeTextEditor?.document.uri;
+    const activeFolder = activeUri ? vscode.workspace.getWorkspaceFolder(activeUri) : undefined;
+    const rootPath = (activeFolder ?? workspaceFolders[0]!).uri.fsPath;
     await runScan(rootPath, statusBar!);
     panel?.refresh();
     tree?.refresh();
@@ -102,17 +105,21 @@ export function activate(context: vscode.ExtensionContext): void {
     if (!vscode.workspace.isTrusted) return;
     const cfg = vscode.workspace.getConfiguration("memo-log");
     if (!cfg.get<boolean>("scanOnSave", false)) return;
-    // don't rescan on saving the memory files themselves
-    const name = doc.fileName;
-    if (name.endsWith("MEMO_LOG.md") || name.endsWith("MEMO_LOG.json")) return;
+    const folder = vscode.workspace.getWorkspaceFolder(doc.uri);
+    if (!folder) return;
 
     if (scanDebounce) clearTimeout(scanDebounce);
-    scanDebounce = setTimeout(async () => {
-      const folders = vscode.workspace.workspaceFolders;
-      if (!folders || folders.length === 0) return;
-      await runScan(folders[0]!.uri.fsPath, statusBar!);
-      panel?.refresh();
-      tree?.refresh();
+    scanDebounce = setTimeout(() => {
+      void (async () => {
+        const paths = await getMemoryPaths(folder.uri);
+        const rel = path.relative(folder.uri.fsPath, doc.uri.fsPath).split(path.sep).join("/");
+        // custom output names from .memolog.json must not retrigger scan-on-save
+        if (rel === paths.md || rel === paths.json) return;
+        await runScan(folder.uri.fsPath, statusBar!);
+        panel?.refresh();
+        tree?.refresh();
+        await updateHasMemoryContext();
+      })();
     }, 800);
   });
 

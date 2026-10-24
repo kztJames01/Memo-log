@@ -8,7 +8,7 @@
   },
   "publisher": "kaungzawthant",
   "license": "MIT",
-  "icon": "media/icon.svg",
+  "icon": "media/icon.png",
   "categories": ["Other", "Programming Languages"],
   "keywords": ["memo-log", "memory", "deterministic", "ai", "zero-token"],
   "repository": {
